@@ -1,0 +1,5 @@
+# Large binary weight files — commit separately or include in zip submission
+*.bin
+
+# macOS
+.DS_Store
