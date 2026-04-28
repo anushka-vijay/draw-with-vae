@@ -502,21 +502,28 @@ footer {
 <!-- Patch Keras 3 model.json format before TF.js sees it -->
 <script>
 (function() {
+  // Convert a single keras_tensor reference to [name, node_idx, tensor_idx, {}]
+  function tensorRef(arg) {
+    if (arg && arg.class_name === '__keras_tensor__') {
+      const [name, ni, ti] = arg.config.keras_history;
+      return [name, ni, ti, {}];
+    }
+    return arg;
+  }
+
   // Convert Keras 3 inbound_nodes to Keras 2 format TF.js understands
   function fixInboundNodes(nodes) {
     if (!Array.isArray(nodes) || nodes.length === 0) return nodes;
     return nodes.map(node => {
       if (Array.isArray(node)) return node; // already Keras 2 format
       if (node && node.args) {
-        // Keras 3: {args: [{class_name:"__keras_tensor__", config:{keras_history:[name,ni,ti]}}]}
-        // → Keras 2: [[name, node_idx, tensor_idx, {}], ...]
-        return node.args.map(arg => {
-          if (arg && arg.class_name === '__keras_tensor__') {
-            const [name, ni, ti] = arg.config.keras_history;
-            return [name, ni, ti, {}];
-          }
-          return arg;
-        });
+        const args = node.args;
+        // Multi-input: args = [[tensor1, tensor2, ...]]  (one element wrapping a list)
+        // Single-input: args = [tensor]
+        if (args.length === 1 && Array.isArray(args[0])) {
+          return args[0].map(tensorRef);   // flatten the inner list
+        }
+        return args.map(tensorRef);
       }
       return node;
     });
