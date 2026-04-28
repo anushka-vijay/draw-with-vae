@@ -499,9 +499,56 @@ footer {
   <div class="legend-items" id="legend"></div>
 </footer>
 
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+<!-- Patch Keras 3 model.json format before TF.js sees it -->
+<script>
+(function() {
+  const _fetch = window.fetch.bind(window);
+  window.fetch = async function(url, opts) {
+    const res = await _fetch(url, opts);
+    if (typeof url === 'string' && url.includes('model.json')) {
+      try {
+        const json = await res.clone().json();
+        const layers = json?.modelTopology?.model_config?.config?.layers || [];
+        for (const l of layers) {
+          const c = l.config || {};
+          // Keras 3: batch_shape → batch_input_shape
+          if ('batch_shape' in c) { c.batch_input_shape = c.batch_shape; delete c.batch_shape; }
+          // Keras 3: DTypePolicy object → plain string
+          if (c.dtype && typeof c.dtype === 'object' && c.dtype.class_name === 'DTypePolicy')
+            c.dtype = c.dtype.config?.name || 'float32';
+          // Remove Keras 3-only fields TF.js doesn't understand
+          ['optional','ragged','module','registered_name','build_config',
+           'compile_config','autocast','quantization_config'].forEach(f => delete c[f]);
+        }
+        return new Response(JSON.stringify(json), {
+          status: res.status, statusText: res.statusText,
+          headers: {'Content-Type': 'application/json'},
+        });
+      } catch(e) { return res; }
+    }
+    return res;
+  };
+})();
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
 <script>
 'use strict';
+
+// Register the custom Sampling layer so TF.js can load the encoder
+class SamplingLayer extends tf.layers.Layer {
+  constructor(config) { super(config || {}); }
+  call(inputs) {
+    return tf.tidy(() => {
+      const [mu, logVar] = inputs;
+      const eps = tf.randomNormal(mu.shape);
+      return tf.add(mu, tf.mul(tf.exp(tf.mul(0.5, logVar)), eps));
+    });
+  }
+  computeOutputShape(inputShape) { return inputShape[0]; }
+  static get className() { return 'Sampling'; }
+}
+tf.serialization.registerClass(SamplingLayer);
 
 // ─── Palette ─────────────────────────────────────────────────────────────────
 const COLORS = [
