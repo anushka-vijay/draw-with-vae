@@ -502,6 +502,26 @@ footer {
 <!-- Patch Keras 3 model.json format before TF.js sees it -->
 <script>
 (function() {
+  // Convert Keras 3 inbound_nodes to Keras 2 format TF.js understands
+  function fixInboundNodes(nodes) {
+    if (!Array.isArray(nodes) || nodes.length === 0) return nodes;
+    return nodes.map(node => {
+      if (Array.isArray(node)) return node; // already Keras 2 format
+      if (node && node.args) {
+        // Keras 3: {args: [{class_name:"__keras_tensor__", config:{keras_history:[name,ni,ti]}}]}
+        // → Keras 2: [[name, node_idx, tensor_idx, {}], ...]
+        return node.args.map(arg => {
+          if (arg && arg.class_name === '__keras_tensor__') {
+            const [name, ni, ti] = arg.config.keras_history;
+            return [name, ni, ti, {}];
+          }
+          return arg;
+        });
+      }
+      return node;
+    });
+  }
+
   const _fetch = window.fetch.bind(window);
   window.fetch = async function(url, opts) {
     const res = await _fetch(url, opts);
@@ -511,14 +531,16 @@ footer {
         const layers = json?.modelTopology?.model_config?.config?.layers || [];
         for (const l of layers) {
           const c = l.config || {};
-          // Keras 3: batch_shape → batch_input_shape
+          // batch_shape → batch_input_shape
           if ('batch_shape' in c) { c.batch_input_shape = c.batch_shape; delete c.batch_shape; }
-          // Keras 3: DTypePolicy object → plain string
+          // DTypePolicy object → plain string
           if (c.dtype && typeof c.dtype === 'object' && c.dtype.class_name === 'DTypePolicy')
             c.dtype = c.dtype.config?.name || 'float32';
-          // Remove Keras 3-only fields TF.js doesn't understand
+          // Remove Keras 3-only fields
           ['optional','ragged','module','registered_name','build_config',
            'compile_config','autocast','quantization_config'].forEach(f => delete c[f]);
+          // inbound_nodes: Keras 3 object format → Keras 2 array format
+          if (l.inbound_nodes) l.inbound_nodes = fixInboundNodes(l.inbound_nodes);
         }
         return new Response(JSON.stringify(json), {
           status: res.status, statusText: res.statusText,
