@@ -653,8 +653,11 @@ async function init() {
     msg.textContent = 'Failed to load models.';
     const em = document.getElementById('error-msg');
     em.style.display = 'block';
-    em.textContent = 'Serve files with: python -m http.server 8000\n' + e.message;
-    console.error(e);
+    const detail = e?.message || e?.toString() || JSON.stringify(e);
+    em.textContent = detail;
+    em.style.whiteSpace = 'pre-wrap';
+    console.error('Full error:', e);
+    console.error('Stack:', e?.stack);
   }
 }
 
