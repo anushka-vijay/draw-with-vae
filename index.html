@@ -649,6 +649,12 @@ async function loadModel(path, msgEl) {
 async function init() {
   const msg = document.getElementById('loading-msg');
   try {
+    msg.textContent = 'Initialising TF.js backend…';
+    await tf.setBackend('cpu');
+    await tf.ready();
+
+    const yield_ = () => new Promise(r => setTimeout(r, 0));
+
     msg.textContent = 'Loading scatter data…';
     const [svae, sae] = await Promise.all([
       fetch('scatter_vae.json').then(r => r.json()),
@@ -657,15 +663,19 @@ async function init() {
     S.scatterVAE = svae;
     S.scatterAE  = sae;
     computeBounds(svae, sae);
+    await yield_();
 
     msg.textContent = 'Loading VAE decoder…';
     S.decoderVAE = await loadModel('tfjs_decoder_vae/model.json', msg);
+    await yield_();
 
     msg.textContent = 'Loading AE decoder…';
     S.decoderAE = await loadModel('tfjs_decoder_ae/model.json', msg);
+    await yield_();
 
     msg.textContent = 'Loading encoder…';
     S.encoderVAE = await loadModel('tfjs_encoder_vae/model.json', msg);
+    await yield_();
 
     msg.textContent = 'Warming up…';
     const d2  = tf.zeros([1, 2]);
