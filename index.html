@@ -633,6 +633,18 @@ for (let i = 0; i < 10; i++) {
 drawCtx.fillStyle = '#000';
 drawCtx.fillRect(0, 0, 196, 196);
 
+// ─── Model loader with timeout ───────────────────────────────────────────────
+async function loadModel(path, msgEl) {
+  const timeout = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error(`Timeout loading ${path} after 15s`)), 15000)
+  );
+  try {
+    return await Promise.race([tf.loadLayersModel(path), timeout]);
+  } catch(e) {
+    throw new Error(`Failed loading ${path}: ${e.message}`);
+  }
+}
+
 // ─── Init ────────────────────────────────────────────────────────────────────
 async function init() {
   const msg = document.getElementById('loading-msg');
@@ -647,13 +659,13 @@ async function init() {
     computeBounds(svae, sae);
 
     msg.textContent = 'Loading VAE decoder…';
-    S.decoderVAE = await tf.loadLayersModel('tfjs_decoder_vae/model.json');
+    S.decoderVAE = await loadModel('tfjs_decoder_vae/model.json', msg);
 
     msg.textContent = 'Loading AE decoder…';
-    S.decoderAE = await tf.loadLayersModel('tfjs_decoder_ae/model.json');
+    S.decoderAE = await loadModel('tfjs_decoder_ae/model.json', msg);
 
     msg.textContent = 'Loading encoder…';
-    S.encoderVAE = await tf.loadLayersModel('tfjs_encoder_vae/model.json');
+    S.encoderVAE = await loadModel('tfjs_encoder_vae/model.json', msg);
 
     msg.textContent = 'Warming up…';
     const d2  = tf.zeros([1, 2]);
