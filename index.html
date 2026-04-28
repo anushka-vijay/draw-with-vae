@@ -542,6 +542,15 @@ footer {
           // inbound_nodes: Keras 3 object format → Keras 2 array format
           if (l.inbound_nodes) l.inbound_nodes = fixInboundNodes(l.inbound_nodes);
         }
+        // input_layers / output_layers: Keras 3 drops outer array for single I/O
+        // ["name",0,0] → [["name",0,0]]
+        const mc = json?.modelTopology?.model_config?.config;
+        if (mc) {
+          if (Array.isArray(mc.input_layers) && typeof mc.input_layers[0] === 'string')
+            mc.input_layers = [mc.input_layers];
+          if (Array.isArray(mc.output_layers) && typeof mc.output_layers[0] === 'string')
+            mc.output_layers = [mc.output_layers];
+        }
         return new Response(JSON.stringify(json), {
           status: res.status, statusText: res.statusText,
           headers: {'Content-Type': 'application/json'},
