@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VAE Latent Manifold Lab</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+  background: #0d0d1a;
+  color: #e0e0f0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Header ── */
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 20px;
+  border-bottom: 1px solid #1e1e3a;
+  background: #090914;
+  flex-shrink: 0;
+}
+header h1 {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #8080b0;
+}
+header h1 span { color: #6868ff; }
+
+.beta-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.beta-row label {
+  font-size: 11px;
+  color: #5050a0;
+  letter-spacing: 0.05em;
+}
+.toggle {
+  display: flex;
+  background: #12122a;
+  border: 1px solid #2a2a50;
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+}
+.toggle-opt {
+  padding: 5px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #40407a;
+  transition: background 0.2s, color 0.2s;
+  user-select: none;
+}
+.toggle-opt.active {
+  background: #3030a0;
+  color: #c0c0ff;
+}
+
+/* ── Three panels ── */
+main {
+  display: grid;
+  grid-template-columns: 230px 1fr 250px;
+  flex: 1;
+  min-height: 0;
+  border-top: 1px solid #1e1e3a;
+}
+.panel {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #1e1e3a;
+  overflow: hidden;
+}
+.panel:last-child { border-right: none; }
+.panel-title {
+  padding: 8px 14px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: #4040a0;
+  border-bottom: 1px solid #1e1e3a;
+  background: #0a0a18;
+  flex-shrink: 0;
+}
+.panel-body {
+  flex: 1;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* ── Draw canvas ── */
+#draw-canvas {
+  width: 196px;
+  height: 196px;
+  background: #000;
+  border: 1px solid #2a2a50;
+  border-radius: 4px;
+  cursor: crosshair;
+  flex-shrink: 0;
+  image-rendering: pixelated;
+}
+
+/* ── Stat chips ── */
+.chip {
+  width: 100%;
+  background: #0e0e22;
+  border: 1px solid #1e1e3a;
+  border-radius: 6px;
+  padding: 7px 10px;
+}
+.chip-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.chip-label {
+  font-size: 10px;
+  color: #50508a;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+.chip-val {
+  font-size: 12px;
+  color: #7090e0;
+  font-family: monospace;
+  text-align: right;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.info-btn {
+  background: none;
+  border: 1px solid #2a2a50;
+  border-radius: 50%;
+  color: #40406a;
+  font-size: 10px;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: border-color 0.15s, color 0.15s;
+  padding: 0;
+  line-height: 1;
+}
+.info-btn:hover { border-color: #6060b0; color: #8080d0; }
+.info-panel {
+  display: none;
+  margin-top: 7px;
+  padding: 7px 9px;
+  background: #08101e;
+  border-left: 2px solid #3030a0;
+  border-radius: 0 3px 3px 0;
+}
+.info-formula {
+  font-size: 11px;
+  color: #6090d0;
+  font-family: monospace;
+  margin-bottom: 5px;
+  line-height: 1.4;
+}
+.info-gloss {
+  font-size: 10px;
+  color: #50607a;
+  line-height: 1.5;
+}
+
+/* ── Buttons ── */
+.btn {
+  width: 100%;
+  padding: 7px 10px;
+  background: #0e0e28;
+  border: 1px solid #2a2a50;
+  border-radius: 5px;
+  color: #7070b0;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  letter-spacing: 0.03em;
+}
+.btn:hover { background: #16163a; border-color: #4040a0; color: #a0a0e0; }
+.btn-accent {
+  background: #14143a;
+  border-color: #3838a0;
+  color: #8888e0;
+  font-weight: 600;
+}
+.btn-accent:hover { background: #1c1c50; border-color: #5050c0; color: #b0b0ff; }
+
+/* ── Scatter canvas ── */
+#scatter-wrap {
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+#scatter-canvas {
+  display: block;
+  border: 1px solid #1e1e3a;
+  border-radius: 4px;
+  cursor: crosshair;
+  background: #060610;
+}
+#cursor-label {
+  font-size: 10px;
+  color: #404070;
+  text-align: center;
+  font-family: monospace;
+  flex-shrink: 0;
+}
+
+/* ── Decode panel ── */
+#decode-canvas {
+  width: 140px;
+  height: 140px;
+  image-rendering: pixelated;
+  border: 1px solid #2a2a50;
+  border-radius: 4px;
+  background: #000;
+  flex-shrink: 0;
+}
+.neighbor-section {
+  width: 100%;
+}
+.neighbor-title {
+  font-size: 9px;
+  color: #30306a;
+  text-align: center;
+  margin-bottom: 5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.neighbor-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+.neighbor-grid canvas {
+  width: 100%;
+  aspect-ratio: 1;
+  image-rendering: pixelated;
+  border: 1px solid #1e1e3a;
+  border-radius: 3px;
+  background: #000;
+  display: block;
+}
+
+/* ── Legend footer ── */
+footer {
+  border-top: 1px solid #1e1e3a;
+  padding: 6px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #090914;
+  flex-shrink: 0;
+}
+.legend-label {
+  font-size: 9px;
+  color: #30306a;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.legend-items {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: #505080;
+}
+.legend-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ── Loading overlay ── */
+#loading {
+  position: fixed;
+  inset: 0;
+  background: #0d0d1a;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  z-index: 999;
+}
+#loading-msg {
+  font-size: 13px;
+  color: #5050a0;
+  letter-spacing: 0.05em;
+}
+.load-bar {
+  width: 180px;
+  height: 2px;
+  background: #1a1a30;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.load-fill {
+  height: 100%;
+  background: #4040c0;
+  border-radius: 2px;
+  animation: lpulse 1.4s ease-in-out infinite;
+}
+@keyframes lpulse {
+  0%,100% { width:15%; margin-left:0 }
+  50%     { width:55%; margin-left:25% }
+}
+
+#error-msg {
+  display: none;
+  font-size: 11px;
+  color: #a04040;
+  margin-top: 8px;
+  text-align: center;
+  max-width: 320px;
+  line-height: 1.5;
+}
+</style>
+</head>
+<body>
+
+<!-- Loading overlay -->
+<div id="loading">
+  <div id="loading-msg">Initializing…</div>
+  <div class="load-bar"><div class="load-fill"></div></div>
+  <div id="error-msg"></div>
+</div>
+
+<!-- Header -->
+<header>
+  <h1>VAE <span>Latent Manifold</span> Lab</h1>
+  <div class="beta-row">
+    <label>MODEL</label>
+    <div class="toggle" id="beta-toggle" onclick="toggleBeta()">
+      <div class="toggle-opt active" id="opt-vae">VAE  β=1</div>
+      <div class="toggle-opt"        id="opt-ae" >AE   β=0</div>
+    </div>
+  </div>
+</header>
+
+<!-- Three panels -->
+<main>
+
+  <!-- Panel 1: Draw -->
+  <section class="panel">
+    <div class="panel-title">1 · DRAW</div>
+    <div class="panel-body">
+      <canvas id="draw-canvas" width="196" height="196"></canvas>
+
+      <!-- z_mean chip -->
+      <div class="chip">
+        <div class="chip-row">
+          <span class="chip-label">z = μ+σε</span>
+          <span class="chip-val"  id="val-zmean">—</span>
+          <button class="info-btn" onclick="toggleInfo('ip-zmean')">i</button>
+        </div>
+        <div class="info-panel" id="ip-zmean">
+          <div class="info-formula">z = μ + σ · ε,  ε ~ N(0, I)</div>
+          <div class="info-gloss">Reparameterization trick: ε is sampled separately so gradients can flow through μ and σ during backprop.</div>
+        </div>
+      </div>
+
+      <!-- sigma chip -->
+      <div class="chip">
+        <div class="chip-row">
+          <span class="chip-label">σ (spread)</span>
+          <span class="chip-val"  id="val-sigma">—</span>
+          <button class="info-btn" onclick="toggleInfo('ip-sigma')">i</button>
+        </div>
+        <div class="info-panel" id="ip-sigma">
+          <div class="info-formula">q(z|x) = N(μ(x), σ²(x))</div>
+          <div class="info-gloss">The encoder outputs a distribution, not a point. Rings on the map show 1σ and 2σ confidence ellipses.</div>
+        </div>
+      </div>
+
+      <button class="btn" onclick="clearDraw()">Clear canvas</button>
+    </div>
+  </section>
+
+  <!-- Panel 2: Latent Space -->
+  <section class="panel">
+    <div class="panel-title">2 · LATENT SPACE</div>
+    <div class="panel-body">
+      <div id="scatter-wrap">
+        <canvas id="scatter-canvas"></canvas>
+      </div>
+      <div id="cursor-label">hover the map to decode</div>
+
+      <!-- KL loss -->
+      <div class="chip">
+        <div class="chip-row">
+          <span class="chip-label">KL loss</span>
+          <span class="chip-val"  id="val-kl">—</span>
+          <button class="info-btn" onclick="toggleInfo('ip-kl')">i</button>
+        </div>
+        <div class="info-panel" id="ip-kl">
+          <div class="info-formula">KL = −½ Σ(1 + log σ² − μ² − σ²)</div>
+          <div class="info-gloss">Measures how far the encoder's distribution drifts from N(0,1). This term organizes the latent clusters.</div>
+        </div>
+      </div>
+
+      <!-- Recon loss -->
+      <div class="chip">
+        <div class="chip-row">
+          <span class="chip-label">Recon loss</span>
+          <span class="chip-val"  id="val-recon">—</span>
+          <button class="info-btn" onclick="toggleInfo('ip-recon')">i</button>
+        </div>
+        <div class="info-panel" id="ip-recon">
+          <div class="info-formula">ℒ_recon = −Σ[x·log x̂ + (1−x)·log(1−x̂)]</div>
+          <div class="info-gloss">Binary cross-entropy per pixel — how different is the reconstruction from your original drawing?</div>
+        </div>
+      </div>
+
+      <!-- Total loss -->
+      <div class="chip">
+        <div class="chip-row">
+          <span class="chip-label">Total loss</span>
+          <span class="chip-val"  id="val-total">—</span>
+          <button class="info-btn" onclick="toggleInfo('ip-total')">i</button>
+        </div>
+        <div class="info-panel" id="ip-total">
+          <div class="info-formula">ℒ = ℒ_recon + β · KL(q(z|x) ‖ p(z))</div>
+          <div class="info-gloss">Good reconstructions, penalized by how far the encoder drifts from N(0,1). β controls that trade-off.</div>
+        </div>
+      </div>
+
+      <!-- Beta chip -->
+      <div class="chip">
+        <div class="chip-row">
+          <span class="chip-label">β</span>
+          <span class="chip-val"  id="val-beta">1</span>
+          <button class="info-btn" onclick="toggleInfo('ip-beta')">i</button>
+        </div>
+        <div class="info-panel" id="ip-beta">
+          <div class="info-formula">β ∈ {0,1}  →  ℒ = ℒ_recon + β·KL</div>
+          <div class="info-gloss">β=0 drops the KL term entirely. The encoder scatters clusters anywhere — no organization enforced. Toggle and watch the map.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Panel 3: Decode -->
+  <section class="panel">
+    <div class="panel-title">3 · DECODE</div>
+    <div class="panel-body">
+      <canvas id="decode-canvas" width="28" height="28"></canvas>
+
+      <div class="neighbor-section">
+        <div class="neighbor-title">neighbors  ±0.3 in z-space</div>
+        <div class="neighbor-grid">
+          <canvas id="nb0" width="28" height="28"></canvas>
+          <canvas id="nb1" width="28" height="28"></canvas>
+          <canvas id="nb2" width="28" height="28"></canvas>
+          <canvas id="nb3" width="28" height="28"></canvas>
+        </div>
+      </div>
+
+      <button class="btn btn-accent" onclick="sampleNormal()">Sample from N(0,1)</button>
+      <button class="btn"            onclick="animatePath()">Animate path</button>
+    </div>
+  </section>
+
+</main>
+
+<!-- Legend -->
+<footer>
+  <span class="legend-label">Digits</span>
+  <div class="legend-items" id="legend"></div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
+<script>
+'use strict';
+
+// ─── Palette ─────────────────────────────────────────────────────────────────
+const COLORS = [
+  '#e6194b','#3cb44b','#ffe119','#4363d8','#f58231',
+  '#911eb4','#42d4f4','#f032e6','#a9a900','#fabed4'
+];
+
+// ─── State ───────────────────────────────────────────────────────────────────
+const S = {
+  beta: 1,
+  decoderVAE: null, decoderAE: null, encoderVAE: null,
+  scatterVAE: [], scatterAE: [],
+  bounds: null,           // { x0,x1,y0,y1 } unified across both datasets
+  cursorZ: [0, 0],
+  encodedZ: null,
+  encodedSigma: null,
+  activeInfo: null,
+  lastDecode: 0,
+  pulseAlpha: 0,
+  pathAnim: false,
+  drawnPixels: null,      // Float32Array[784] — last drawing, for recon loss
+};
+
+// ─── DOM ─────────────────────────────────────────────────────────────────────
+const drawCanvas    = document.getElementById('draw-canvas');
+const scatterCanvas = document.getElementById('scatter-canvas');
+const decodeCanvas  = document.getElementById('decode-canvas');
+const nbCanvases    = [0,1,2,3].map(i => document.getElementById('nb'+i));
+const drawCtx       = drawCanvas.getContext('2d');
+const scatterCtx    = scatterCanvas.getContext('2d');
+
+// Offscreen canvas — scatter dots rendered here once, blitted each frame
+const offscreen = document.createElement('canvas');
+const offCtx    = offscreen.getContext('2d');
+
+// ─── Legend ──────────────────────────────────────────────────────────────────
+const legendEl = document.getElementById('legend');
+for (let i = 0; i < 10; i++) {
+  legendEl.innerHTML +=
+    `<div class="legend-item"><div class="legend-dot" style="background:${COLORS[i]}"></div>${i}</div>`;
+}
+
+// ─── Drawing canvas init ─────────────────────────────────────────────────────
+drawCtx.fillStyle = '#000';
+drawCtx.fillRect(0, 0, 196, 196);
+
+// ─── Init ────────────────────────────────────────────────────────────────────
+async function init() {
+  const msg = document.getElementById('loading-msg');
+  try {
+    msg.textContent = 'Loading scatter data…';
+    const [svae, sae] = await Promise.all([
+      fetch('scatter_vae.json').then(r => r.json()),
+      fetch('scatter_ae.json').then(r => r.json()),
+    ]);
+    S.scatterVAE = svae;
+    S.scatterAE  = sae;
+    computeBounds(svae, sae);
+
+    msg.textContent = 'Loading VAE decoder…';
+    S.decoderVAE = await tf.loadLayersModel('tfjs_decoder_vae/model.json');
+
+    msg.textContent = 'Loading AE decoder…';
+    S.decoderAE = await tf.loadLayersModel('tfjs_decoder_ae/model.json');
+
+    msg.textContent = 'Loading encoder…';
+    S.encoderVAE = await tf.loadLayersModel('tfjs_encoder_vae/model.json');
+
+    msg.textContent = 'Warming up…';
+    const d2  = tf.zeros([1, 2]);
+    const d28 = tf.zeros([1, 28, 28, 1]);
+    const outs = S.encoderVAE.predict(d28);
+    tf.dispose([d2, d28, S.decoderVAE.predict(d2), S.decoderAE.predict(d2), ...outs]);
+
+    document.getElementById('loading').style.display = 'none';
+    sizescatterCanvas();
+    renderOffscreen(svae);
+    requestAnimationFrame(rafLoop);
+  } catch(e) {
+    msg.textContent = 'Failed to load models.';
+    const em = document.getElementById('error-msg');
+    em.style.display = 'block';
+    em.textContent = 'Serve files with: python -m http.server 8000\n' + e.message;
+    console.error(e);
+  }
+}
+
+// ─── Bounds ──────────────────────────────────────────────────────────────────
+function computeBounds(a, b) {
+  const all = [...a, ...b];
+  const xs = all.map(p => p.x), ys = all.map(p => p.y);
+  const px = (Math.max(...xs) - Math.min(...xs)) * 0.08;
+  const py = (Math.max(...ys) - Math.min(...ys)) * 0.08;
+  S.bounds = {
+    x0: Math.min(...xs) - px, x1: Math.max(...xs) + px,
+    y0: Math.min(...ys) - py, y1: Math.max(...ys) + py,
+  };
+}
+
+// ─── Coordinate conversion ───────────────────────────────────────────────────
+function d2c(dx, dy) {
+  const {x0,x1,y0,y1} = S.bounds;
+  const W = scatterCanvas.width, H = scatterCanvas.height;
+  return [(dx-x0)/(x1-x0)*W, (dy-y0)/(y1-y0)*H];
+}
+function c2d(cx, cy) {
+  const {x0,x1,y0,y1} = S.bounds;
+  const W = scatterCanvas.width, H = scatterCanvas.height;
+  return [x0 + cx/W*(x1-x0), y0 + cy/H*(y1-y0)];
+}
+
+// ─── Scatter canvas sizing ────────────────────────────────────────────────────
+function sizescatterCanvas() {
+  const wrap = document.getElementById('scatter-wrap');
+  const W = wrap.clientWidth;
+  const H = Math.min(W * 0.75, wrap.clientHeight || W * 0.75);
+  scatterCanvas.width  = W;
+  scatterCanvas.height = H;
+  offscreen.width  = W;
+  offscreen.height = H;
+  renderOffscreen(S.beta === 1 ? S.scatterVAE : S.scatterAE);
+}
+window.addEventListener('resize', sizescatterCanvas);
+
+// ─── Offscreen dot rendering ─────────────────────────────────────────────────
+function renderOffscreen(pts) {
+  offCtx.clearRect(0, 0, offscreen.width, offscreen.height);
+  for (const p of pts) {
+    const [cx, cy] = d2c(p.x, p.y);
+    offCtx.beginPath();
+    offCtx.arc(cx, cy, 2, 0, Math.PI*2);
+    offCtx.fillStyle = COLORS[p.label] + '7f';
+    offCtx.fill();
+  }
+}
+
+// ─── RAF render loop ─────────────────────────────────────────────────────────
+function rafLoop() {
+  const W = scatterCanvas.width, H = scatterCanvas.height;
+  scatterCtx.clearRect(0, 0, W, H);
+  scatterCtx.drawImage(offscreen, 0, 0);
+
+  // μ point + σ rings
+  if (S.encodedZ) {
+    const [mx, my] = d2c(S.encodedZ[0], S.encodedZ[1]);
+    const {x0,x1,y0,y1} = S.bounds;
+    const scx = W/(x1-x0), scy = H/(y1-y0);
+
+    if (S.encodedSigma) {
+      const [sx, sy] = S.encodedSigma;
+      // 2σ ring
+      scatterCtx.beginPath();
+      scatterCtx.ellipse(mx, my, 2*sx*scx, 2*sy*scy, 0, 0, Math.PI*2);
+      scatterCtx.strokeStyle = 'rgba(90,130,255,0.22)';
+      scatterCtx.lineWidth = 1;
+      scatterCtx.stroke();
+      // 1σ ring
+      scatterCtx.beginPath();
+      scatterCtx.ellipse(mx, my, sx*scx, sy*scy, 0, 0, Math.PI*2);
+      scatterCtx.strokeStyle = 'rgba(90,130,255,0.55)';
+      scatterCtx.lineWidth = 1.5;
+      scatterCtx.stroke();
+    }
+
+    // Pulse
+    if (S.pulseAlpha > 0) {
+      const r = 6 + (1 - S.pulseAlpha) * 18;
+      scatterCtx.beginPath();
+      scatterCtx.arc(mx, my, r, 0, Math.PI*2);
+      scatterCtx.strokeStyle = `rgba(100,150,255,${S.pulseAlpha.toFixed(2)})`;
+      scatterCtx.lineWidth = 2;
+      scatterCtx.stroke();
+      S.pulseAlpha = Math.max(0, S.pulseAlpha - 0.025);
+    }
+
+    // μ dot
+    scatterCtx.beginPath();
+    scatterCtx.arc(mx, my, 5, 0, Math.PI*2);
+    scatterCtx.fillStyle = '#5a82ff';
+    scatterCtx.fill();
+
+    // Dashed line to cursor
+    const [cx2, cy2] = d2c(S.cursorZ[0], S.cursorZ[1]);
+    scatterCtx.beginPath();
+    scatterCtx.setLineDash([3,4]);
+    scatterCtx.moveTo(mx, my);
+    scatterCtx.lineTo(cx2, cy2);
+    scatterCtx.strokeStyle = 'rgba(90,120,255,0.3)';
+    scatterCtx.lineWidth = 1;
+    scatterCtx.stroke();
+    scatterCtx.setLineDash([]);
+  }
+
+  // Crosshair + cursor dot
+  const [cx, cy] = d2c(S.cursorZ[0], S.cursorZ[1]);
+  scatterCtx.strokeStyle = 'rgba(255,255,255,0.25)';
+  scatterCtx.lineWidth = 1;
+  scatterCtx.beginPath();
+  scatterCtx.moveTo(cx,0); scatterCtx.lineTo(cx,H);
+  scatterCtx.moveTo(0,cy); scatterCtx.lineTo(W,cy);
+  scatterCtx.stroke();
+  scatterCtx.beginPath();
+  scatterCtx.arc(cx, cy, 3.5, 0, Math.PI*2);
+  scatterCtx.fillStyle = '#fff';
+  scatterCtx.fill();
+
+  requestAnimationFrame(rafLoop);
+}
+
+// ─── Scatter mouse ────────────────────────────────────────────────────────────
+scatterCanvas.addEventListener('mousemove', async e => {
+  const r  = scatterCanvas.getBoundingClientRect();
+  const px = (e.clientX - r.left) * scatterCanvas.width  / r.width;
+  const py = (e.clientY - r.top)  * scatterCanvas.height / r.height;
+  const [zx, zy] = c2d(px, py);
+  S.cursorZ = [zx, zy];
+  document.getElementById('cursor-label').textContent = `z = [${zx.toFixed(3)}, ${zy.toFixed(3)}]`;
+
+  const now = performance.now();
+  if (now - S.lastDecode < 33) return; // ~30 fps cap for smooth feel
+  S.lastDecode = now;
+  await decodeAt(zx, zy, decodeCanvas);
+  await decodeNeighbors(zx, zy);
+});
+
+scatterCanvas.addEventListener('mouseleave', () => {
+  document.getElementById('cursor-label').textContent = 'hover the map to decode';
+});
+
+// ─── Decode helpers ───────────────────────────────────────────────────────────
+async function decodeAt(z1, z2, canvas) {
+  const dec = S.beta === 1 ? S.decoderVAE : S.decoderAE;
+  if (!dec) return;
+  const zt  = tf.tensor2d([[z1, z2]]);
+  const out = dec.predict(zt);
+  const px  = await out.squeeze().data();
+  tf.dispose([zt, out]);
+  paintPixels(px, canvas);
+}
+
+async function decodeNeighbors(z1, z2) {
+  const off = 0.3;
+  const pts = [[z1-off, z2-off],[z1+off, z2-off],[z1-off, z2+off],[z1+off, z2+off]];
+  for (let i = 0; i < 4; i++) await decodeAt(pts[i][0], pts[i][1], nbCanvases[i]);
+}
+
+function paintPixels(px, canvas) {
+  const ctx = canvas.getContext('2d');
+  const img = ctx.createImageData(28, 28);
+  for (let i = 0; i < 784; i++) {
+    const v = Math.round(px[i] * 255);
+    img.data[i*4]   = v;
+    img.data[i*4+1] = v;
+    img.data[i*4+2] = v;
+    img.data[i*4+3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
+// ─── Drawing ─────────────────────────────────────────────────────────────────
+let drawing = false;
+
+drawCanvas.addEventListener('mousedown', e => {
+  drawing = true;
+  const [x,y] = drawPos(e);
+  drawCtx.beginPath();
+  drawCtx.moveTo(x, y);
+});
+drawCanvas.addEventListener('mousemove', e => {
+  if (!drawing) return;
+  const [x,y] = drawPos(e);
+  drawCtx.lineTo(x, y);
+  drawCtx.strokeStyle = '#fff';
+  drawCtx.lineWidth   = 14;
+  drawCtx.lineCap     = 'round';
+  drawCtx.lineJoin    = 'round';
+  drawCtx.stroke();
+});
+drawCanvas.addEventListener('mouseup',    () => { drawing = false; encodeDrawing(); });
+drawCanvas.addEventListener('mouseleave', () => { if (drawing) { drawing = false; encodeDrawing(); } });
+
+function drawPos(e) {
+  const r = drawCanvas.getBoundingClientRect();
+  return [
+    (e.clientX - r.left) * 196 / r.width,
+    (e.clientY - r.top)  * 196 / r.height,
+  ];
+}
+
+async function encodeDrawing() {
+  if (!S.encoderVAE) return;
+
+  // Downsample 196×196 → 28×28
+  const small = document.createElement('canvas');
+  small.width = small.height = 28;
+  small.getContext('2d').drawImage(drawCanvas, 0, 0, 28, 28);
+  const raw = small.getContext('2d').getImageData(0, 0, 28, 28).data;
+
+  const input = new Float32Array(784);
+  for (let i = 0; i < 784; i++) input[i] = raw[i*4] / 255;
+  S.drawnPixels = input;
+
+  const t = tf.tensor4d(input, [1, 28, 28, 1]);
+  const outs    = S.encoderVAE.predict(t);
+  const zMeanD  = await outs[0].data();
+  const zLogVar = await outs[1].data();
+  tf.dispose([t, ...outs]);
+
+  const sigma = [Math.exp(0.5*zLogVar[0]), Math.exp(0.5*zLogVar[1])];
+  S.encodedZ     = [zMeanD[0], zMeanD[1]];
+  S.encodedSigma = sigma;
+  S.pulseAlpha   = 1.0;
+
+  document.getElementById('val-zmean').textContent =
+    `[${zMeanD[0].toFixed(2)}, ${zMeanD[1].toFixed(2)}]`;
+  document.getElementById('val-sigma').textContent =
+    `[${sigma[0].toFixed(2)}, ${sigma[1].toFixed(2)}]`;
+
+  // KL loss
+  const kl = -0.5 * (
+    (1 + zLogVar[0] - zMeanD[0]**2 - Math.exp(zLogVar[0])) +
+    (1 + zLogVar[1] - zMeanD[1]**2 - Math.exp(zLogVar[1]))
+  );
+  document.getElementById('val-kl').textContent = kl.toFixed(2);
+
+  // Decode at μ and compute recon loss
+  const dec = S.beta === 1 ? S.decoderVAE : S.decoderAE;
+  const zt  = tf.tensor2d([S.encodedZ]);
+  const out = dec.predict(zt);
+  const recon = await out.squeeze().data();
+  tf.dispose([zt, out]);
+
+  paintPixels(recon, decodeCanvas);
+  decodeNeighbors(S.encodedZ[0], S.encodedZ[1]);
+
+  // Binary cross-entropy recon loss
+  let reconLoss = 0;
+  for (let i = 0; i < 784; i++) {
+    const x    = input[i];
+    const xhat = Math.max(1e-7, Math.min(1-1e-7, recon[i]));
+    reconLoss -= x*Math.log(xhat) + (1-x)*Math.log(1-xhat);
+  }
+  const total = reconLoss + S.beta * kl;
+  document.getElementById('val-recon').textContent = reconLoss.toFixed(1);
+  document.getElementById('val-total').textContent = total.toFixed(1);
+}
+
+function clearDraw() {
+  drawCtx.fillStyle = '#000';
+  drawCtx.fillRect(0, 0, 196, 196);
+  S.encodedZ = null; S.encodedSigma = null; S.drawnPixels = null;
+  ['val-zmean','val-sigma','val-kl','val-recon','val-total'].forEach(id => {
+    document.getElementById(id).textContent = '—';
+  });
+}
+
+// ─── Beta toggle ─────────────────────────────────────────────────────────────
+function toggleBeta() {
+  const from   = S.beta === 1 ? S.scatterVAE : S.scatterAE;
+  S.beta       = S.beta === 1 ? 0 : 1;
+  const to     = S.beta === 1 ? S.scatterVAE : S.scatterAE;
+
+  document.getElementById('opt-vae').classList.toggle('active', S.beta === 1);
+  document.getElementById('opt-ae').classList.toggle('active',  S.beta === 0);
+  document.getElementById('val-beta').textContent = S.beta;
+
+  animateScatter(from, to);
+  decodeAt(S.cursorZ[0], S.cursorZ[1], decodeCanvas);
+  decodeNeighbors(S.cursorZ[0], S.cursorZ[1]);
+  if (S.encodedZ) encodeDrawing();
+}
+
+function animateScatter(from, to, ms = 800) {
+  const t0 = performance.now();
+  function frame(now) {
+    const t    = Math.min((now - t0) / ms, 1);
+    const ease = t < 0.5 ? 2*t*t : -1 + (4 - 2*t)*t;
+    const mid  = from.map((p, i) => ({
+      x: p.x + (to[i].x - p.x) * ease,
+      y: p.y + (to[i].y - p.y) * ease,
+      label: p.label,
+    }));
+    renderOffscreen(mid);
+    if (t < 1) requestAnimationFrame(frame);
+    else renderOffscreen(to);
+  }
+  requestAnimationFrame(frame);
+}
+
+// ─── Sample from N(0,1) ──────────────────────────────────────────────────────
+async function sampleNormal() {
+  const z1 = randNormal(), z2 = randNormal();
+  const from = [...S.cursorZ];
+  const t0   = performance.now();
+  function moveFrame(now) {
+    const t    = Math.min((now - t0) / 500, 1);
+    const ease = 1 - Math.pow(1 - t, 3);
+    S.cursorZ  = [from[0]+(z1-from[0])*ease, from[1]+(z2-from[1])*ease];
+    if (t < 1) requestAnimationFrame(moveFrame);
+    else S.cursorZ = [z1, z2];
+  }
+  requestAnimationFrame(moveFrame);
+  await decodeAt(z1, z2, decodeCanvas);
+  await decodeNeighbors(z1, z2);
+  document.getElementById('cursor-label').textContent =
+    `z = [${z1.toFixed(3)}, ${z2.toFixed(3)}]  (sampled)`;
+}
+
+function randNormal() {
+  const u = 1 - Math.random(), v = Math.random();
+  return Math.sqrt(-2*Math.log(u)) * Math.cos(2*Math.PI*v);
+}
+
+// ─── Animate path ────────────────────────────────────────────────────────────
+function animatePath() {
+  if (S.pathAnim) return;
+  S.pathAnim = true;
+  const start = [...S.cursorZ];
+  const end   = [randNormal()*1.5, randNormal()*1.5];
+  const steps = 100;
+  let i = 0;
+  async function step() {
+    if (i >= steps) { S.pathAnim = false; return; }
+    const t  = i / steps;
+    const z1 = start[0] + (end[0]-start[0])*t;
+    const z2 = start[1] + (end[1]-start[1])*t;
+    S.cursorZ = [z1, z2];
+    await decodeAt(z1, z2, decodeCanvas);
+    i++;
+    setTimeout(step, 18);
+  }
+  step();
+}
+
+// ─── Info panels ─────────────────────────────────────────────────────────────
+function toggleInfo(id) {
+  if (S.activeInfo && S.activeInfo !== id) {
+    document.getElementById(S.activeInfo).style.display = 'none';
+  }
+  const el    = document.getElementById(id);
+  const open  = el.style.display === 'block';
+  el.style.display  = open ? 'none' : 'block';
+  S.activeInfo      = open ? null : id;
+}
+
+// ─── Boot ────────────────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>
