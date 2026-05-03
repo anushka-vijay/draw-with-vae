@@ -644,6 +644,7 @@ const S = {
   pathAnim: false,
   drawnPixels: null,      // Float32Array[784] — last drawing, for recon loss
   view: { scale: 1, panX: 0, panY: 0 },
+  cssW: 1, cssH: 1,   // CSS display dimensions, updated by sizescatterCanvas
 };
 
 // Pan gesture tracking (transient UI state, not app state)
@@ -752,12 +753,12 @@ function computeBounds(a, b) {
 // ─── Coordinate conversion ───────────────────────────────────────────────────
 function d2c(dx, dy) {
   const {x0,x1,y0,y1} = S.bounds;
-  const W = scatterCanvas.width, H = scatterCanvas.height;
+  const W = S.cssW, H = S.cssH;
   return [(dx-x0)/(x1-x0)*W, (dy-y0)/(y1-y0)*H];
 }
 function c2d(cx, cy) {
   const {x0,x1,y0,y1} = S.bounds;
-  const W = scatterCanvas.width, H = scatterCanvas.height;
+  const W = S.cssW, H = S.cssH;
   return [x0 + cx/W*(x1-x0), y0 + cy/H*(y1-y0)];
 }
 // Base canvas pixels → screen (zoom-aware) pixels
@@ -770,27 +771,37 @@ function screenToBase(sx, sy) {
 }
 // Data coords → screen pixels (combines d2c + baseToScreen)
 function d2s(dx, dy) { return baseToScreen(...d2c(dx, dy)); }
-// Mouse/wheel event → canvas logical pixel coords
+// Mouse/wheel event → CSS pixel coords (context is DPR-scaled, so CSS = logical)
 function canvasPixels(e) {
   const r = scatterCanvas.getBoundingClientRect();
   return [
-    (e.clientX - r.left) * scatterCanvas.width  / r.width,
-    (e.clientY - r.top)  * scatterCanvas.height / r.height,
+    (e.clientX - r.left) * S.cssW / r.width,
+    (e.clientY - r.top)  * S.cssH / r.height,
   ];
 }
 
 // ─── Scatter canvas sizing ────────────────────────────────────────────────────
 function sizescatterCanvas() {
   const wrap = document.getElementById('scatter-wrap');
-  const W = wrap.clientWidth;
-  const wh = wrap.clientHeight;
-  const H = document.fullscreenElement
-    ? (wh || W)
-    : Math.min(W * 0.75, wh || W * 0.75);
-  scatterCanvas.width  = W;
-  scatterCanvas.height = Math.max(H, 100);
-  offscreen.width  = W;
-  offscreen.height = Math.max(H, 100);
+  const dpr  = window.devicePixelRatio || 1;
+  const cssW = wrap.clientWidth;
+  const wh   = wrap.clientHeight;
+  const cssH = Math.max(
+    document.fullscreenElement ? (wh || cssW) : Math.min(cssW * 0.75, wh || cssW * 0.75),
+    100
+  );
+  // Physical canvas = CSS size × DPR for crisp rendering on retina screens
+  scatterCanvas.width  = cssW * dpr;
+  scatterCanvas.height = cssH * dpr;
+  scatterCanvas.style.width  = cssW + 'px';
+  scatterCanvas.style.height = cssH + 'px';
+  offscreen.width  = cssW * dpr;
+  offscreen.height = cssH * dpr;
+  // Scale contexts so all drawing commands work in CSS-pixel space
+  scatterCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  offCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  S.cssW = cssW;
+  S.cssH = cssH;
   const pts = S.beta === 1 ? S.scatterVAE : S.scatterAE;
   renderOffscreen(pts);
   autoFitView(pts);
@@ -803,7 +814,7 @@ function autoFitView(pts) {
   const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
   const minX = Math.min(...xs), maxX = Math.max(...xs);
   const minY = Math.min(...ys), maxY = Math.max(...ys);
-  const W = scatterCanvas.width, H = scatterCanvas.height;
+  const W = S.cssW, H = S.cssH;
   const [bMinX, bMinY] = d2c(minX, minY);
   const [bMaxX, bMaxY] = d2c(maxX, maxY);
   const dataW = bMaxX - bMinX, dataH = bMaxY - bMinY;
@@ -817,29 +828,29 @@ function autoFitView(pts) {
 
 // ─── Offscreen dot rendering ─────────────────────────────────────────────────
 function renderOffscreen(pts) {
-  offCtx.clearRect(0, 0, offscreen.width, offscreen.height);
+  offCtx.clearRect(0, 0, S.cssW, S.cssH);
   for (const p of pts) {
     const [cx, cy] = d2c(p.x, p.y);
     offCtx.beginPath();
     offCtx.arc(cx, cy, 2, 0, Math.PI*2);
-    offCtx.fillStyle = COLORS[p.label] + '7f';
+    offCtx.fillStyle = COLORS[p.label] + 'b0';
     offCtx.fill();
   }
 }
 
 // ─── RAF render loop ─────────────────────────────────────────────────────────
 function rafLoop() {
-  const W = scatterCanvas.width, H = scatterCanvas.height;
+  const W = S.cssW, H = S.cssH;
   scatterCtx.clearRect(0, 0, W, H);
 
-  // Dots with zoom/pan transform applied
+  // Dots with zoom/pan transform — drawImage sizes specified explicitly in CSS pixels
   scatterCtx.save();
   scatterCtx.translate(S.view.panX, S.view.panY);
   scatterCtx.scale(S.view.scale, S.view.scale);
-  scatterCtx.drawImage(offscreen, 0, 0);
+  scatterCtx.drawImage(offscreen, 0, 0, W, H);
   scatterCtx.restore();
 
-  // All overlays drawn in screen (zoom-aware) coords so pixel sizes stay constant
+  // All overlays in CSS-pixel (zoom-aware screen) coords
   if (S.encodedZ) {
     const [mx, my] = d2s(S.encodedZ[0], S.encodedZ[1]);
     const {x0,x1,y0,y1} = S.bounds;
@@ -850,12 +861,12 @@ function rafLoop() {
       const [sx, sy] = S.encodedSigma;
       scatterCtx.beginPath();
       scatterCtx.ellipse(mx, my, 2*sx*scx, 2*sy*scy, 0, 0, Math.PI*2);
-      scatterCtx.strokeStyle = 'rgba(90,130,255,0.22)';
+      scatterCtx.strokeStyle = 'rgba(57,255,20,0.20)';
       scatterCtx.lineWidth = 1;
       scatterCtx.stroke();
       scatterCtx.beginPath();
       scatterCtx.ellipse(mx, my, sx*scx, sy*scy, 0, 0, Math.PI*2);
-      scatterCtx.strokeStyle = 'rgba(90,130,255,0.55)';
+      scatterCtx.strokeStyle = 'rgba(57,255,20,0.45)';
       scatterCtx.lineWidth = 1.5;
       scatterCtx.stroke();
     }
@@ -864,21 +875,21 @@ function rafLoop() {
       const pr = 6 + (1 - S.pulseAlpha) * 18;
       scatterCtx.beginPath();
       scatterCtx.arc(mx, my, pr, 0, Math.PI*2);
-      scatterCtx.strokeStyle = `rgba(100,150,255,${S.pulseAlpha.toFixed(2)})`;
+      scatterCtx.strokeStyle = `rgba(57,255,20,${S.pulseAlpha.toFixed(2)})`;
       scatterCtx.lineWidth = 2;
       scatterCtx.stroke();
       S.pulseAlpha = Math.max(0, S.pulseAlpha - 0.025);
     }
 
-    // μ dot (clickable — draw with subtle outline hint)
+    // μ dot — neon lime, clickable
     scatterCtx.beginPath();
-    scatterCtx.arc(mx, my, 6, 0, Math.PI*2);
-    scatterCtx.strokeStyle = 'rgba(90,130,255,0.4)';
+    scatterCtx.arc(mx, my, 7, 0, Math.PI*2);
+    scatterCtx.strokeStyle = 'rgba(57,255,20,0.35)';
     scatterCtx.lineWidth = 2;
     scatterCtx.stroke();
     scatterCtx.beginPath();
     scatterCtx.arc(mx, my, 4.5, 0, Math.PI*2);
-    scatterCtx.fillStyle = '#5a82ff';
+    scatterCtx.fillStyle = '#39ff14';
     scatterCtx.fill();
 
     const [cx2, cy2] = d2s(S.cursorZ[0], S.cursorZ[1]);
@@ -886,15 +897,15 @@ function rafLoop() {
     scatterCtx.setLineDash([3,4]);
     scatterCtx.moveTo(mx, my);
     scatterCtx.lineTo(cx2, cy2);
-    scatterCtx.strokeStyle = 'rgba(90,120,255,0.3)';
+    scatterCtx.strokeStyle = 'rgba(57,255,20,0.25)';
     scatterCtx.lineWidth = 1;
     scatterCtx.stroke();
     scatterCtx.setLineDash([]);
   }
 
-  // Crosshair + cursor dot in screen coords
+  // Crosshair + cursor dot
   const [cx, cy] = d2s(S.cursorZ[0], S.cursorZ[1]);
-  scatterCtx.strokeStyle = 'rgba(255,255,255,0.25)';
+  scatterCtx.strokeStyle = 'rgba(255,255,255,0.22)';
   scatterCtx.lineWidth = 1;
   scatterCtx.beginPath();
   scatterCtx.moveTo(cx,0); scatterCtx.lineTo(cx,H);
