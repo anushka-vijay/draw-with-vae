@@ -165,13 +165,28 @@ main {
   background: #131313;
   border-left: 2px solid #444;
   border-radius: 0 5px 5px 0;
+  position: relative;
 }
+.info-close {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  background: none;
+  border: none;
+  color: #555;
+  font-size: 14px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 2px;
+}
+.info-close:hover { color: #999; }
 .info-formula {
   font-size: 11px;
   color: #888;
   font-family: 'SF Mono', 'Consolas', monospace;
   margin-bottom: 5px;
   line-height: 1.5;
+  padding-right: 16px;
 }
 .info-gloss {
   font-size: 10px;
@@ -365,7 +380,7 @@ footer {
           <span class="chip-val"  id="val-zmean">—</span>
           <button class="info-btn" onclick="toggleInfo('ip-zmean')">i</button>
         </div>
-        <div class="info-panel" id="ip-zmean">
+        <div class="info-panel" id="ip-zmean"><button class="info-close" onclick="toggleInfo('ip-zmean')">×</button>
           <div class="info-formula">z = μ + σ · ε,  ε ~ N(0, I)</div>
           <div class="info-gloss">Reparameterization trick: ε is sampled separately so gradients can flow through μ and σ during backprop.</div>
         </div>
@@ -378,7 +393,7 @@ footer {
           <span class="chip-val"  id="val-sigma">—</span>
           <button class="info-btn" onclick="toggleInfo('ip-sigma')">i</button>
         </div>
-        <div class="info-panel" id="ip-sigma">
+        <div class="info-panel" id="ip-sigma"><button class="info-close" onclick="toggleInfo('ip-sigma')">×</button>
           <div class="info-formula">q(z|x) = N(μ(x), σ²(x))</div>
           <div class="info-gloss">The encoder outputs a distribution, not a point. Rings on the map show 1σ and 2σ confidence ellipses.</div>
         </div>
@@ -404,7 +419,7 @@ footer {
           <span class="chip-val"  id="val-kl">—</span>
           <button class="info-btn" onclick="toggleInfo('ip-kl')">i</button>
         </div>
-        <div class="info-panel" id="ip-kl">
+        <div class="info-panel" id="ip-kl"><button class="info-close" onclick="toggleInfo('ip-kl')">×</button>
           <div class="info-formula">KL = −½ Σ(1 + log σ² − μ² − σ²)</div>
           <div class="info-gloss">Measures how far the encoder's distribution drifts from N(0,1). This term organizes the latent clusters.</div>
         </div>
@@ -417,7 +432,7 @@ footer {
           <span class="chip-val"  id="val-recon">—</span>
           <button class="info-btn" onclick="toggleInfo('ip-recon')">i</button>
         </div>
-        <div class="info-panel" id="ip-recon">
+        <div class="info-panel" id="ip-recon"><button class="info-close" onclick="toggleInfo('ip-recon')">×</button>
           <div class="info-formula">ℒ_recon = −Σ[x·log x̂ + (1−x)·log(1−x̂)]</div>
           <div class="info-gloss">Binary cross-entropy per pixel — how different is the reconstruction from your original drawing?</div>
         </div>
@@ -430,7 +445,7 @@ footer {
           <span class="chip-val"  id="val-total">—</span>
           <button class="info-btn" onclick="toggleInfo('ip-total')">i</button>
         </div>
-        <div class="info-panel" id="ip-total">
+        <div class="info-panel" id="ip-total"><button class="info-close" onclick="toggleInfo('ip-total')">×</button>
           <div class="info-formula">ℒ = ℒ_recon + β · KL(q(z|x) ‖ p(z))</div>
           <div class="info-gloss">Good reconstructions, penalized by how far the encoder drifts from N(0,1). β controls that trade-off.</div>
         </div>
@@ -443,7 +458,7 @@ footer {
           <span class="chip-val"  id="val-beta">1</span>
           <button class="info-btn" onclick="toggleInfo('ip-beta')">i</button>
         </div>
-        <div class="info-panel" id="ip-beta">
+        <div class="info-panel" id="ip-beta"><button class="info-close" onclick="toggleInfo('ip-beta')">×</button>
           <div class="info-formula">β ∈ {0,1}  →  ℒ = ℒ_recon + β·KL</div>
           <div class="info-gloss">β=0 drops the KL term entirely. The encoder scatters clusters anywhere — no organization enforced. Toggle and watch the map.</div>
         </div>
