@@ -300,6 +300,42 @@ footer {
 }
 .legend-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
 
+/* ── Fullscreen button ── */
+.fs-btn {
+  background: none;
+  border: 1px solid #333;
+  border-radius: 5px;
+  color: #555;
+  font-size: 13px;
+  width: 22px;
+  height: 22px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 1;
+  transition: border-color 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+.fs-btn:hover { border-color: #666; color: #999; }
+#latent-panel:fullscreen,
+#latent-panel:-webkit-full-screen {
+  display: flex;
+  flex-direction: column;
+  background: #1c1c1c;
+}
+#latent-panel:fullscreen .panel-body,
+#latent-panel:-webkit-full-screen .panel-body {
+  flex: 1;
+  min-height: 0;
+}
+#latent-panel:fullscreen #scatter-wrap,
+#latent-panel:-webkit-full-screen #scatter-wrap {
+  flex: 1;
+  min-height: 0;
+}
+
 /* ── Loading overlay ── */
 #loading {
   position: fixed;
@@ -404,8 +440,11 @@ footer {
   </section>
 
   <!-- Panel 2: Latent Space -->
-  <section class="panel">
-    <div class="panel-title">2 · LATENT SPACE</div>
+  <section class="panel" id="latent-panel">
+    <div class="panel-title" style="display:flex;align-items:center;justify-content:space-between;">
+      <span>2 · LATENT SPACE</span>
+      <button class="fs-btn" id="fs-btn" onclick="toggleFullscreen()" title="Toggle fullscreen">⛶</button>
+    </div>
     <div class="panel-body">
       <div id="scatter-wrap">
         <canvas id="scatter-canvas"></canvas>
@@ -604,7 +643,11 @@ const S = {
   pulseAlpha: 0,
   pathAnim: false,
   drawnPixels: null,      // Float32Array[784] — last drawing, for recon loss
+  view: { scale: 1, panX: 0, panY: 0 },
 };
+
+// Pan gesture tracking (transient UI state, not app state)
+const pan = { active: false, startSx: 0, startSy: 0, startPanX: 0, startPanY: 0, didMove: false };
 
 // ─── DOM ─────────────────────────────────────────────────────────────────────
 const drawCanvas    = document.getElementById('draw-canvas');
@@ -718,16 +761,38 @@ function c2d(cx, cy) {
   const W = scatterCanvas.width, H = scatterCanvas.height;
   return [x0 + cx/W*(x1-x0), y0 + cy/H*(y1-y0)];
 }
+// Base canvas pixels → screen (zoom-aware) pixels
+function baseToScreen(bx, by) {
+  return [S.view.panX + bx * S.view.scale, S.view.panY + by * S.view.scale];
+}
+// Screen pixels → base canvas pixels
+function screenToBase(sx, sy) {
+  return [(sx - S.view.panX) / S.view.scale, (sy - S.view.panY) / S.view.scale];
+}
+// Data coords → screen pixels (combines d2c + baseToScreen)
+function d2s(dx, dy) { return baseToScreen(...d2c(dx, dy)); }
+// Mouse/wheel event → canvas logical pixel coords
+function canvasPixels(e) {
+  const r = scatterCanvas.getBoundingClientRect();
+  return [
+    (e.clientX - r.left) * scatterCanvas.width  / r.width,
+    (e.clientY - r.top)  * scatterCanvas.height / r.height,
+  ];
+}
 
 // ─── Scatter canvas sizing ────────────────────────────────────────────────────
 function sizescatterCanvas() {
   const wrap = document.getElementById('scatter-wrap');
   const W = wrap.clientWidth;
-  const H = Math.min(W * 0.75, wrap.clientHeight || W * 0.75);
+  const wh = wrap.clientHeight;
+  const H = document.fullscreenElement
+    ? (wh || W)
+    : Math.min(W * 0.75, wh || W * 0.75);
   scatterCanvas.width  = W;
-  scatterCanvas.height = H;
+  scatterCanvas.height = Math.max(H, 100);
   offscreen.width  = W;
-  offscreen.height = H;
+  offscreen.height = Math.max(H, 100);
+  S.view.scale = 1; S.view.panX = 0; S.view.panY = 0;
   renderOffscreen(S.beta === 1 ? S.scatterVAE : S.scatterAE);
 }
 window.addEventListener('resize', sizescatterCanvas);
@@ -748,23 +813,28 @@ function renderOffscreen(pts) {
 function rafLoop() {
   const W = scatterCanvas.width, H = scatterCanvas.height;
   scatterCtx.clearRect(0, 0, W, H);
-  scatterCtx.drawImage(offscreen, 0, 0);
 
-  // μ point + σ rings
+  // Dots with zoom/pan transform applied
+  scatterCtx.save();
+  scatterCtx.translate(S.view.panX, S.view.panY);
+  scatterCtx.scale(S.view.scale, S.view.scale);
+  scatterCtx.drawImage(offscreen, 0, 0);
+  scatterCtx.restore();
+
+  // All overlays drawn in screen (zoom-aware) coords so pixel sizes stay constant
   if (S.encodedZ) {
-    const [mx, my] = d2c(S.encodedZ[0], S.encodedZ[1]);
+    const [mx, my] = d2s(S.encodedZ[0], S.encodedZ[1]);
     const {x0,x1,y0,y1} = S.bounds;
-    const scx = W/(x1-x0), scy = H/(y1-y0);
+    const scx = W/(x1-x0) * S.view.scale;
+    const scy = H/(y1-y0) * S.view.scale;
 
     if (S.encodedSigma) {
       const [sx, sy] = S.encodedSigma;
-      // 2σ ring
       scatterCtx.beginPath();
       scatterCtx.ellipse(mx, my, 2*sx*scx, 2*sy*scy, 0, 0, Math.PI*2);
       scatterCtx.strokeStyle = 'rgba(90,130,255,0.22)';
       scatterCtx.lineWidth = 1;
       scatterCtx.stroke();
-      // 1σ ring
       scatterCtx.beginPath();
       scatterCtx.ellipse(mx, my, sx*scx, sy*scy, 0, 0, Math.PI*2);
       scatterCtx.strokeStyle = 'rgba(90,130,255,0.55)';
@@ -772,25 +842,28 @@ function rafLoop() {
       scatterCtx.stroke();
     }
 
-    // Pulse
     if (S.pulseAlpha > 0) {
-      const r = 6 + (1 - S.pulseAlpha) * 18;
+      const pr = 6 + (1 - S.pulseAlpha) * 18;
       scatterCtx.beginPath();
-      scatterCtx.arc(mx, my, r, 0, Math.PI*2);
+      scatterCtx.arc(mx, my, pr, 0, Math.PI*2);
       scatterCtx.strokeStyle = `rgba(100,150,255,${S.pulseAlpha.toFixed(2)})`;
       scatterCtx.lineWidth = 2;
       scatterCtx.stroke();
       S.pulseAlpha = Math.max(0, S.pulseAlpha - 0.025);
     }
 
-    // μ dot
+    // μ dot (clickable — draw with subtle outline hint)
     scatterCtx.beginPath();
-    scatterCtx.arc(mx, my, 5, 0, Math.PI*2);
+    scatterCtx.arc(mx, my, 6, 0, Math.PI*2);
+    scatterCtx.strokeStyle = 'rgba(90,130,255,0.4)';
+    scatterCtx.lineWidth = 2;
+    scatterCtx.stroke();
+    scatterCtx.beginPath();
+    scatterCtx.arc(mx, my, 4.5, 0, Math.PI*2);
     scatterCtx.fillStyle = '#5a82ff';
     scatterCtx.fill();
 
-    // Dashed line to cursor
-    const [cx2, cy2] = d2c(S.cursorZ[0], S.cursorZ[1]);
+    const [cx2, cy2] = d2s(S.cursorZ[0], S.cursorZ[1]);
     scatterCtx.beginPath();
     scatterCtx.setLineDash([3,4]);
     scatterCtx.moveTo(mx, my);
@@ -801,8 +874,8 @@ function rafLoop() {
     scatterCtx.setLineDash([]);
   }
 
-  // Crosshair + cursor dot
-  const [cx, cy] = d2c(S.cursorZ[0], S.cursorZ[1]);
+  // Crosshair + cursor dot in screen coords
+  const [cx, cy] = d2s(S.cursorZ[0], S.cursorZ[1]);
   scatterCtx.strokeStyle = 'rgba(255,255,255,0.25)';
   scatterCtx.lineWidth = 1;
   scatterCtx.beginPath();
@@ -818,23 +891,77 @@ function rafLoop() {
 }
 
 // ─── Scatter mouse ────────────────────────────────────────────────────────────
+scatterCanvas.addEventListener('mousedown', e => {
+  const [sx, sy] = canvasPixels(e);
+  pan.active = true; pan.didMove = false;
+  pan.startSx = sx; pan.startSy = sy;
+  pan.startPanX = S.view.panX; pan.startPanY = S.view.panY;
+  scatterCanvas.style.cursor = 'grab';
+});
+
 scatterCanvas.addEventListener('mousemove', async e => {
-  const r  = scatterCanvas.getBoundingClientRect();
-  const px = (e.clientX - r.left) * scatterCanvas.width  / r.width;
-  const py = (e.clientY - r.top)  * scatterCanvas.height / r.height;
-  const [zx, zy] = c2d(px, py);
+  const [sx, sy] = canvasPixels(e);
+
+  if (pan.active) {
+    const dx = sx - pan.startSx, dy = sy - pan.startSy;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) pan.didMove = true;
+    if (pan.didMove) {
+      S.view.panX = pan.startPanX + dx;
+      S.view.panY = pan.startPanY + dy;
+      return;
+    }
+  }
+
+  const [bx, by] = screenToBase(sx, sy);
+  const [zx, zy] = c2d(bx, by);
   S.cursorZ = [zx, zy];
   document.getElementById('cursor-label').textContent = `z = [${zx.toFixed(3)}, ${zy.toFixed(3)}]`;
 
   const now = performance.now();
-  if (now - S.lastDecode < 33) return; // ~30 fps cap for smooth feel
+  if (now - S.lastDecode < 33) return;
   S.lastDecode = now;
   await decodeAt(zx, zy, decodeCanvas);
   await decodeNeighbors(zx, zy);
 });
 
+scatterCanvas.addEventListener('mouseup', e => {
+  const [sx, sy] = canvasPixels(e);
+  scatterCanvas.style.cursor = 'crosshair';
+  if (!pan.didMove && S.encodedZ) {
+    // Click within 14px of μ dot → show that drawing's decode
+    const [mx, my] = d2s(S.encodedZ[0], S.encodedZ[1]);
+    if (Math.hypot(sx - mx, sy - my) < 14) {
+      decodeAt(S.encodedZ[0], S.encodedZ[1], decodeCanvas);
+      decodeNeighbors(S.encodedZ[0], S.encodedZ[1]);
+      S.pulseAlpha = 1.0;
+      document.getElementById('cursor-label').textContent =
+        `z = [${S.encodedZ[0].toFixed(3)}, ${S.encodedZ[1].toFixed(3)}]  (your drawing)`;
+    }
+  }
+  pan.active = false;
+});
+
 scatterCanvas.addEventListener('mouseleave', () => {
+  pan.active = false;
+  scatterCanvas.style.cursor = 'crosshair';
   document.getElementById('cursor-label').textContent = 'hover the map to decode';
+});
+
+// Scroll wheel → zoom centered on cursor
+scatterCanvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const [sx, sy] = canvasPixels(e);
+  const [bx, by] = screenToBase(sx, sy);
+  const factor   = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+  const newScale = Math.max(0.25, Math.min(10, S.view.scale * factor));
+  S.view.panX  = sx - bx * newScale;
+  S.view.panY  = sy - by * newScale;
+  S.view.scale = newScale;
+}, { passive: false });
+
+// Double-click → reset zoom/pan
+scatterCanvas.addEventListener('dblclick', () => {
+  S.view.scale = 1; S.view.panX = 0; S.view.panY = 0;
 });
 
 // ─── Decode helpers ───────────────────────────────────────────────────────────
@@ -1052,6 +1179,22 @@ function toggleInfo(id) {
   el.style.display  = open ? 'none' : 'block';
   S.activeInfo      = open ? null : id;
 }
+
+// ─── Fullscreen ───────────────────────────────────────────────────────────────
+function toggleFullscreen() {
+  const panel = document.getElementById('latent-panel');
+  if (!document.fullscreenElement) {
+    panel.requestFullscreen().catch(err => console.warn('Fullscreen error:', err));
+  } else {
+    document.exitFullscreen();
+  }
+}
+
+document.addEventListener('fullscreenchange', () => {
+  const btn = document.getElementById('fs-btn');
+  if (btn) btn.textContent = document.fullscreenElement ? '✕' : '⛶';
+  setTimeout(sizescatterCanvas, 60);
+});
 
 // ─── Boot ────────────────────────────────────────────────────────────────────
 init();
