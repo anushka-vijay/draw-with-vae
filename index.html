@@ -300,6 +300,71 @@ footer {
 }
 .legend-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
 
+/* ── Distribution picker chips ── */
+#dist-chips {
+  display: flex;
+  gap: 5px;
+  width: 100%;
+}
+.dist-chip {
+  cursor: pointer;
+  border: 1px solid #363636;
+  border-radius: 7px;
+  padding: 5px 4px 4px;
+  background: #1e1e1e;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+  transition: border-color 0.12s, background 0.12s;
+}
+.dist-chip:hover { border-color: #515151; background: #262626; }
+.dist-chip-active { border-color: #5a5a5a !important; background: #2c2c2c !important; }
+.dist-chip-label {
+  font-size: 8.5px;
+  color: #777;
+  font-family: 'SF Mono', 'Consolas', monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 100%;
+  text-align: center;
+}
+.dist-chip-active .dist-chip-label { color: #aaa; }
+/* Popover (position:fixed, positioned via JS) */
+#dist-popover {
+  display: none;
+  position: fixed;
+  z-index: 1000;
+  background: #1a1a1a;
+  border: 1px solid #383838;
+  border-radius: 8px;
+  padding: 10px;
+  width: 162px;
+  pointer-events: none;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.65);
+}
+#popover-title {
+  font-size: 10px;
+  color: #888;
+  font-family: 'SF Mono', 'Consolas', monospace;
+  margin-bottom: 7px;
+  line-height: 1.45;
+}
+#popover-minimap {
+  border-radius: 5px;
+  display: block;
+  image-rendering: pixelated;
+}
+#popover-annotation {
+  font-size: 9px;
+  color: #5a5a5a;
+  margin-top: 7px;
+  line-height: 1.5;
+}
+
 /* ── Fullscreen button ── */
 .fs-btn {
   background: none;
@@ -521,7 +586,8 @@ footer {
         </div>
       </div>
 
-      <button class="btn btn-accent" onclick="sampleNormal()">Sample from N(0,1)</button>
+      <button class="btn btn-accent" id="btn-sample" onclick="handleSample()">Sample from <span id="dist-label">N(0,1)</span></button>
+      <div id="dist-chips"></div>
       <button class="btn"            onclick="animatePath()">Animate path</button>
     </div>
   </section>
@@ -533,6 +599,13 @@ footer {
   <span class="legend-label">Digits</span>
   <div class="legend-items" id="legend"></div>
 </footer>
+
+<!-- Distribution picker popover (fixed-position, moved by JS) -->
+<div id="dist-popover">
+  <div id="popover-title"></div>
+  <canvas id="popover-minimap" width="142" height="142"></canvas>
+  <div id="popover-annotation"></div>
+</div>
 
 <!-- Patch Keras 3 model.json format before TF.js sees it -->
 <script>
@@ -645,6 +718,7 @@ const S = {
   drawnPixels: null,      // Float32Array[784] — last drawing, for recon loss
   view: { scale: 1, panX: 0, panY: 0 },
   cssW: 1, cssH: 1,   // CSS display dimensions, updated by sizescatterCanvas
+  currentDistribution: 'normal',
 };
 
 // Pan gesture tracking (transient UI state, not app state)
@@ -703,6 +777,7 @@ async function init() {
     S.scatterVAE = svae;
     S.scatterAE  = sae;
     computeBounds(svae, sae);
+    initDistributionPicker();
     await yield_();
 
     msg.textContent = 'Loading VAE decoder…';
@@ -843,11 +918,12 @@ function rafLoop() {
   const W = S.cssW, H = S.cssH;
   scatterCtx.clearRect(0, 0, W, H);
 
-  // Dots with zoom/pan transform — drawImage sizes specified explicitly in CSS pixels
+  // Dots + distribution overlay inside zoom/pan transform
   scatterCtx.save();
   scatterCtx.translate(S.view.panX, S.view.panY);
   scatterCtx.scale(S.view.scale, S.view.scale);
   scatterCtx.drawImage(offscreen, 0, 0, W, H);
+  drawDistributionOverlay(scatterCtx, S.currentDistribution, W, H, 0.12);
   scatterCtx.restore();
 
   // All overlays in CSS-pixel (zoom-aware screen) coords
@@ -1130,6 +1206,7 @@ function toggleBeta() {
   document.getElementById('opt-ae').classList.toggle('active',  S.beta === 0);
   document.getElementById('val-beta').textContent = S.beta;
 
+  popoverCache = {};   // scatter changed — re-render mini-maps on next hover
   animateScatter(from, to);
   decodeAt(S.cursorZ[0], S.cursorZ[1], decodeCanvas);
   decodeNeighbors(S.cursorZ[0], S.cursorZ[1]);
@@ -1207,6 +1284,274 @@ function toggleInfo(id) {
   const open  = el.style.display === 'block';
   el.style.display  = open ? 'none' : 'block';
   S.activeInfo      = open ? null : id;
+}
+
+// ─── Distribution Picker ─────────────────────────────────────────────────────
+const DISTRIBUTIONS = [
+  { key: 'normal',         label: 'N(0,1)',  formula: 'z ~ N(0, I)',   annotation: 'Matches VAE training — samples land in cluster center' },
+  { key: 'normal_shifted', label: 'N(2,1)',  formula: 'z ~ N(2, I)',   annotation: 'Shifted right — misses most digit clusters' },
+  { key: 'normal_wide',    label: 'N(0,3)',  formula: 'z ~ N(0, 3I)',  annotation: 'Wide spread — hits clusters but also empty regions' },
+  { key: 'uniform',        label: 'Uniform', formula: 'z ~ U(−3, 3)', annotation: 'Flat probability — clusters hit by chance only' },
+  { key: 'laplace',        label: 'Laplace', formula: 'z ~ Lap(0,1)', annotation: 'Heavy tails — more extreme samples than normal' },
+];
+
+const SAMPLERS = {
+  normal:         () => [randNormal(), randNormal()],
+  normal_shifted: () => [randNormal() + 2, randNormal() + 2],
+  normal_wide:    () => [randNormal() * 3, randNormal() * 3],
+  uniform:        () => [(Math.random() * 6) - 3, (Math.random() * 6) - 3],
+  laplace: () => {
+    const sL = () => { const u = Math.random() - 0.5; return -Math.sign(u) * Math.log(1 - 2 * Math.abs(u)); };
+    return [sL(), sL()];
+  },
+};
+
+// Z-space → pixel coords for a canvas of arbitrary size W×H (uses S.bounds)
+function zToPx(zx, zy, W, H) {
+  const {x0,x1,y0,y1} = S.bounds;
+  return [(zx-x0)/(x1-x0)*W, (zy-y0)/(y1-y0)*H];
+}
+
+function drawSparkline(canvas, key) {
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+  const fns = {
+    normal:         x => Math.exp(-0.5 * x * x),
+    normal_shifted: x => Math.exp(-0.5 * (x - 2) * (x - 2)),
+    normal_wide:    x => Math.exp(-0.5 * (x / 3) * (x / 3)),
+    uniform:        x => (x >= -3 && x <= 3) ? 1 : 0,
+    laplace:        x => Math.exp(-Math.abs(x)),
+  };
+  const fn = fns[key];
+  const xs = Array.from({length: W}, (_, i) => (i / W) * 8 - 4);
+  const ys = xs.map(fn);
+  const maxY = Math.max(...ys);
+  ctx.beginPath();
+  ctx.strokeStyle = '#666';
+  ctx.lineWidth = 1.2;
+  xs.forEach((_, i) => {
+    const py = H - (ys[i] / maxY) * (H - 2) - 1;
+    i === 0 ? ctx.moveTo(i, py) : ctx.lineTo(i, py);
+  });
+  ctx.stroke();
+}
+
+// Draw the distribution's density shape onto ctx (in [0,W]×[0,H] space, using S.bounds)
+function drawDistributionOverlay(ctx, key, W, H, opacity) {
+  if (!S.bounds) return;
+  ctx.save();
+  ctx.globalAlpha = opacity;
+  const {x0,x1,y0,y1} = S.bounds;
+  const [cx, cy] = zToPx(0, 0, W, H);
+  const pxPerUnit = W / (x1 - x0);
+
+  switch (key) {
+    case 'normal': {
+      const r = pxPerUnit;
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * 2.5);
+      g.addColorStop(0,   'rgba(255,255,255,0.9)');
+      g.addColorStop(0.4, 'rgba(255,255,255,0.4)');
+      g.addColorStop(1,   'rgba(255,255,255,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(cx - r*3, cy - r*3, r*6, r*6);
+      break;
+    }
+    case 'normal_shifted': {
+      const [sx, sy] = zToPx(2, 2, W, H);
+      const r = pxPerUnit;
+      const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, r * 2.5);
+      g.addColorStop(0,   'rgba(255,200,100,0.9)');
+      g.addColorStop(0.4, 'rgba(255,200,100,0.4)');
+      g.addColorStop(1,   'rgba(255,200,100,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(sx - r*3, sy - r*3, r*6, r*6);
+      break;
+    }
+    case 'normal_wide': {
+      const r = pxPerUnit * 3;
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      g.addColorStop(0,   'rgba(255,255,255,0.5)');
+      g.addColorStop(0.6, 'rgba(255,255,255,0.2)');
+      g.addColorStop(1,   'rgba(255,255,255,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(cx - r*1.2, cy - r*1.2, r*2.4, r*2.4);
+      break;
+    }
+    case 'uniform': {
+      const [x1p, y1p] = zToPx(-3, -3, W, H);
+      const [x2p, y2p] = zToPx(3, 3, W, H);
+      const rx = Math.min(x1p, x2p), ry = Math.min(y1p, y2p);
+      const rw = Math.abs(x2p - x1p), rh = Math.abs(y2p - y1p);
+      ctx.fillStyle = 'rgba(255,255,255,0.07)';
+      ctx.fillRect(rx, ry, rw, rh);
+      ctx.globalAlpha = opacity * 4;  // stronger border
+      ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+      ctx.lineWidth = 1.2;
+      ctx.setLineDash([4, 4]);
+      ctx.strokeRect(rx, ry, rw, rh);
+      ctx.setLineDash([]);
+      break;
+    }
+    case 'laplace': {
+      const r = pxPerUnit;
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * 2);
+      g.addColorStop(0,   'rgba(200,180,255,0.95)');
+      g.addColorStop(0.2, 'rgba(200,180,255,0.5)');
+      g.addColorStop(0.5, 'rgba(200,180,255,0.15)');
+      g.addColorStop(1,   'rgba(200,180,255,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(cx - r*3, cy - r*3, r*6, r*6);
+      break;
+    }
+  }
+  ctx.restore();
+}
+
+// Draw a dashed 1σ ring on the mini-map or main canvas
+function drawSigmaRing(ctx, key, W, H) {
+  if (!S.bounds) return;
+  const {x0,x1} = S.bounds;
+  const pxPerUnit = W / (x1 - x0);
+  const [cx, cy] = zToPx(0, 0, W, H);
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([3, 3]);
+  switch (key) {
+    case 'normal':
+      ctx.beginPath(); ctx.arc(cx, cy, pxPerUnit * 1, 0, Math.PI*2); ctx.stroke(); break;
+    case 'normal_shifted': {
+      const [sx, sy] = zToPx(2, 2, W, H);
+      ctx.beginPath(); ctx.arc(sx, sy, pxPerUnit * 1, 0, Math.PI*2); ctx.stroke(); break;
+    }
+    case 'normal_wide':
+      ctx.beginPath(); ctx.arc(cx, cy, pxPerUnit * 3, 0, Math.PI*2); ctx.stroke(); break;
+    case 'uniform':
+      break; // rectangle already drawn in overlay
+    case 'laplace':
+      ctx.beginPath(); ctx.arc(cx, cy, pxPerUnit * 0.65, 0, Math.PI*2); ctx.stroke(); break;
+  }
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
+// Render scatter + distribution overlay onto the popover mini-map canvas
+function renderMiniMap(canvas, key, scatter) {
+  if (!scatter || scatter.length === 0 || !S.bounds) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#111';
+  ctx.fillRect(0, 0, W, H);
+  scatter.filter((_, i) => i % 5 === 0).forEach(pt => {
+    const [px, py] = zToPx(pt.x, pt.y, W, H);
+    ctx.beginPath();
+    ctx.arc(px, py, 1, 0, Math.PI*2);
+    ctx.fillStyle = COLORS[pt.label] + '99';
+    ctx.fill();
+  });
+  drawDistributionOverlay(ctx, key, W, H, 0.28);
+  drawSigmaRing(ctx, key, W, H);
+}
+
+let popoverCache = {};
+
+function initDistributionPicker() {
+  const container = document.getElementById('dist-chips');
+  DISTRIBUTIONS.forEach(dist => {
+    const chip = document.createElement('div');
+    chip.id        = `chip-${dist.key}`;
+    chip.className = 'dist-chip';
+    chip.title     = dist.formula;
+
+    const sparkCanvas = document.createElement('canvas');
+    sparkCanvas.width  = 38;
+    sparkCanvas.height = 16;
+    drawSparkline(sparkCanvas, dist.key);
+
+    const lbl = document.createElement('span');
+    lbl.textContent = dist.label;
+    lbl.className   = 'dist-chip-label';
+
+    chip.appendChild(sparkCanvas);
+    chip.appendChild(lbl);
+
+    let hoverTimer = null;
+    chip.addEventListener('mouseenter', () => {
+      if (S.currentDistribution === dist.key) return;
+      hoverTimer = setTimeout(() => showPopover(dist, chip), 120);
+    });
+    chip.addEventListener('mouseleave', () => {
+      clearTimeout(hoverTimer);
+      hidePopover();
+    });
+    chip.addEventListener('click', () => setDistribution(dist.key));
+    container.appendChild(chip);
+  });
+  setDistribution('normal');
+}
+
+function setDistribution(key) {
+  S.currentDistribution = key;
+  const dist = DISTRIBUTIONS.find(d => d.key === key);
+  document.getElementById('dist-label').textContent = dist.label;
+  DISTRIBUTIONS.forEach(d => {
+    document.getElementById(`chip-${d.key}`)
+      .classList.toggle('dist-chip-active', d.key === key);
+  });
+  hidePopover();
+}
+
+function showPopover(dist, chipEl) {
+  const popover = document.getElementById('dist-popover');
+  const minimap = document.getElementById('popover-minimap');
+  document.getElementById('popover-title').textContent      = `${dist.label}  ·  ${dist.formula}`;
+  document.getElementById('popover-annotation').textContent = dist.annotation;
+
+  // Cache per-key as ImageData so the shared canvas is correctly restored each time
+  const mmCtx = minimap.getContext('2d');
+  if (!popoverCache[dist.key]) {
+    renderMiniMap(minimap, dist.key, S.beta === 1 ? S.scatterVAE : S.scatterAE);
+    popoverCache[dist.key] = mmCtx.getImageData(0, 0, minimap.width, minimap.height);
+  } else {
+    mmCtx.putImageData(popoverCache[dist.key], 0, 0);
+  }
+
+  const pw = 162;
+  const ph = 225;
+  const chipRect = chipEl.getBoundingClientRect();
+  let left = chipRect.left + chipRect.width / 2 - pw / 2;
+  let top  = chipRect.top - ph - 8;
+  left = Math.max(8, Math.min(left, window.innerWidth  - pw - 8));
+  top  = Math.max(8, Math.min(top,  window.innerHeight - ph - 8));
+
+  popover.style.left    = left + 'px';
+  popover.style.top     = top  + 'px';
+  popover.style.display = 'block';
+}
+
+function hidePopover() {
+  document.getElementById('dist-popover').style.display = 'none';
+}
+
+async function handleSample() {
+  const [z1, z2] = SAMPLERS[S.currentDistribution]();
+  const from = [...S.cursorZ];
+  const t0   = performance.now();
+  function moveFrame(now) {
+    const t    = Math.min((now - t0) / 400, 1);
+    const ease = 1 - Math.pow(1 - t, 3);
+    S.cursorZ  = [from[0] + (z1 - from[0]) * ease, from[1] + (z2 - from[1]) * ease];
+    if (t < 1) requestAnimationFrame(moveFrame);
+    else S.cursorZ = [z1, z2];
+  }
+  requestAnimationFrame(moveFrame);
+  await decodeAt(z1, z2, decodeCanvas);
+  await decodeNeighbors(z1, z2);
+  const dist = DISTRIBUTIONS.find(d => d.key === S.currentDistribution);
+  document.getElementById('cursor-label').textContent =
+    `z = [${z1.toFixed(3)}, ${z2.toFixed(3)}]  (${dist.label})`;
 }
 
 // ─── Fullscreen ───────────────────────────────────────────────────────────────
