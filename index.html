@@ -327,45 +327,6 @@ footer {
   white-space: pre-wrap;
 }
 </style>
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 14px;
-  z-index: 999;
-}
-#loading-msg {
-  font-size: 13px;
-  color: #5050a0;
-  letter-spacing: 0.05em;
-}
-.load-bar {
-  width: 180px;
-  height: 2px;
-  background: #1a1a30;
-  border-radius: 2px;
-  overflow: hidden;
-}
-.load-fill {
-  height: 100%;
-  background: #4040c0;
-  border-radius: 2px;
-  animation: lpulse 1.4s ease-in-out infinite;
-}
-@keyframes lpulse {
-  0%,100% { width:15%; margin-left:0 }
-  50%     { width:55%; margin-left:25% }
-}
-
-#error-msg {
-  display: none;
-  font-size: 11px;
-  color: #a04040;
-  margin-top: 8px;
-  text-align: center;
-  max-width: 320px;
-  line-height: 1.5;
-}
-</style>
 </head>
 <body>
 
