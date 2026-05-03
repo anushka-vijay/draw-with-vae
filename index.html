@@ -724,7 +724,6 @@ async function init() {
 
     document.getElementById('loading').style.display = 'none';
     sizescatterCanvas();
-    renderOffscreen(svae);
     requestAnimationFrame(rafLoop);
   } catch(e) {
     msg.textContent = 'Failed to load models.';
@@ -792,10 +791,29 @@ function sizescatterCanvas() {
   scatterCanvas.height = Math.max(H, 100);
   offscreen.width  = W;
   offscreen.height = Math.max(H, 100);
-  S.view.scale = 1; S.view.panX = 0; S.view.panY = 0;
-  renderOffscreen(S.beta === 1 ? S.scatterVAE : S.scatterAE);
+  const pts = S.beta === 1 ? S.scatterVAE : S.scatterAE;
+  renderOffscreen(pts);
+  autoFitView(pts);
 }
 window.addEventListener('resize', sizescatterCanvas);
+
+// ─── Auto-fit view to data extent ────────────────────────────────────────────
+function autoFitView(pts) {
+  if (!pts || pts.length === 0 || !S.bounds) return;
+  const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const W = scatterCanvas.width, H = scatterCanvas.height;
+  const [bMinX, bMinY] = d2c(minX, minY);
+  const [bMaxX, bMaxY] = d2c(maxX, maxY);
+  const dataW = bMaxX - bMinX, dataH = bMaxY - bMinY;
+  if (dataW < 1 || dataH < 1) return;
+  const scale = Math.min(W / dataW, H / dataH) * 0.82;
+  const bCx = (bMinX + bMaxX) / 2, bCy = (bMinY + bMaxY) / 2;
+  S.view.scale = scale;
+  S.view.panX  = W / 2 - bCx * scale;
+  S.view.panY  = H / 2 - bCy * scale;
+}
 
 // ─── Offscreen dot rendering ─────────────────────────────────────────────────
 function renderOffscreen(pts) {
@@ -959,9 +977,9 @@ scatterCanvas.addEventListener('wheel', e => {
   S.view.scale = newScale;
 }, { passive: false });
 
-// Double-click → reset zoom/pan
+// Double-click → reset zoom/pan to auto-fit
 scatterCanvas.addEventListener('dblclick', () => {
-  S.view.scale = 1; S.view.panX = 0; S.view.panY = 0;
+  autoFitView(S.beta === 1 ? S.scatterVAE : S.scatterAE);
 });
 
 // ─── Decode helpers ───────────────────────────────────────────────────────────
@@ -1119,7 +1137,7 @@ function animateScatter(from, to, ms = 800) {
     }));
     renderOffscreen(mid);
     if (t < 1) requestAnimationFrame(frame);
-    else renderOffscreen(to);
+    else { renderOffscreen(to); autoFitView(to); }
   }
   requestAnimationFrame(frame);
 }
