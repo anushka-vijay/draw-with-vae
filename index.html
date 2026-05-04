@@ -353,7 +353,7 @@ footer {
   margin-bottom: 7px;
   line-height: 1.45;
 }
-#popover-minimap {
+#popover-preview {
   border-radius: 5px;
   display: block;
   image-rendering: pixelated;
@@ -603,7 +603,7 @@ footer {
 <!-- Distribution picker popover (fixed-position, moved by JS) -->
 <div id="dist-popover">
   <div id="popover-title"></div>
-  <canvas id="popover-minimap" width="142" height="142"></canvas>
+  <canvas id="popover-preview" width="142" height="142"></canvas>
   <div id="popover-annotation"></div>
 </div>
 
@@ -719,7 +719,6 @@ const S = {
   view: { scale: 1, panX: 0, panY: 0 },
   cssW: 1, cssH: 1,   // CSS display dimensions, updated by sizescatterCanvas
   currentDistribution: 'normal',
-  sampleCloud: [],             // [{z1,z2},...] 300 points rendered as hollow rings
 };
 
 // Pan gesture tracking (transient UI state, not app state)
@@ -778,7 +777,7 @@ async function init() {
     S.scatterVAE = svae;
     S.scatterAE  = sae;
     computeBounds(svae, sae);
-    initDistributionPicker();  // calls setDistribution('normal') → regenerateSampleCloud()
+    initDistributionPicker();
     await yield_();
 
     msg.textContent = 'Loading VAE decoder…';
@@ -878,6 +877,7 @@ function sizescatterCanvas() {
   offCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
   S.cssW = cssW;
   S.cssH = cssH;
+  glowHeatmapCache = {};   // canvas dimensions changed — re-render glows
   const pts = S.beta === 1 ? S.scatterVAE : S.scatterAE;
   renderOffscreen(pts);
   autoFitView(pts);
@@ -924,8 +924,8 @@ function rafLoop() {
   scatterCtx.translate(S.view.panX, S.view.panY);
   scatterCtx.scale(S.view.scale, S.view.scale);
   scatterCtx.drawImage(offscreen, 0, 0, W, H);
-  drawSampleCloud(scatterCtx, W, H);
-  drawSigmaRing(scatterCtx, S.currentDistribution, W, H);
+  const glowCanvas = getGlowHeatmap(S.currentDistribution);
+  if (glowCanvas) { scatterCtx.globalAlpha = 1; scatterCtx.drawImage(glowCanvas, 0, 0, W, H); }
   scatterCtx.restore();
 
   // All overlays in CSS-pixel (zoom-aware screen) coords
@@ -1208,12 +1208,12 @@ function toggleBeta() {
   document.getElementById('opt-ae').classList.toggle('active',  S.beta === 0);
   document.getElementById('val-beta').textContent = S.beta;
 
-  popoverMiniMapRendered = {};
+  glowHeatmapCache = {};   // scatter changed — glow bounds may differ per model
+  popoverPreviews = {};
   animateScatter(from, to);
   decodeAt(S.cursorZ[0], S.cursorZ[1], decodeCanvas);
   decodeNeighbors(S.cursorZ[0], S.cursorZ[1]);
   if (S.encodedZ) encodeDrawing();
-  regenerateSampleCloud();
 }
 
 function animateScatter(from, to, ms = 800) {
@@ -1272,11 +1272,11 @@ function toggleInfo(id) {
 
 // ─── Distribution Picker ─────────────────────────────────────────────────────
 const DISTRIBUTIONS = [
-  { key: 'normal',         label: 'N(0,1)',  formula: 'z ~ N(0, I)',   annotation: 'Matches VAE training — samples land in cluster center' },
-  { key: 'normal_shifted', label: 'N(2,1)',  formula: 'z ~ N(2, I)',   annotation: 'Shifted right — misses most digit clusters' },
-  { key: 'normal_wide',    label: 'N(0,3)',  formula: 'z ~ N(0, 3I)',  annotation: 'Wide spread — hits clusters but also empty regions' },
-  { key: 'uniform',        label: 'Uniform', formula: 'z ~ U(−3, 3)', annotation: 'Flat probability — clusters hit by chance only' },
-  { key: 'laplace',        label: 'Laplace', formula: 'z ~ Lap(0,1)', annotation: 'Heavy tails — more extreme samples than normal' },
+  { key: 'normal',         label: 'N(0,1)',  formula: 'z ~ N(0, I)',   annotation: 'Decoder trained here — glow overlaps colored dots' },
+  { key: 'normal_shifted', label: 'N(2,1)',  formula: 'z ~ N(2, I)',   annotation: 'If prior was N(2,1) — decoder trained over there instead' },
+  { key: 'normal_wide',    label: 'N(0,3)',  formula: 'z ~ N(0, 3I)',  annotation: 'Wide prior — decoder spreads across larger region' },
+  { key: 'uniform',        label: 'Uniform', formula: 'z ~ U(−3, 3)', annotation: 'Flat prior — decoder learns everywhere equally' },
+  { key: 'laplace',        label: 'Laplace', formula: 'z ~ Lap(0,1)', annotation: 'Heavy-tailed prior — decoder concentrates at center' },
 ];
 
 const SAMPLERS = {
@@ -1290,95 +1290,65 @@ const SAMPLERS = {
   },
 };
 
-function regenerateSampleCloud() {
-  S.sampleCloud = Array.from({length: 300}, () => SAMPLERS[S.currentDistribution]());
-}
-
-// Render 300 hollow rings from the current sample cloud (called inside zoom/pan transform)
-function drawSampleCloud(ctx, W, H) {
-  if (!S.sampleCloud || S.sampleCloud.length === 0) return;
-  ctx.save();
-  ctx.globalAlpha = 0.35;
-  ctx.strokeStyle = 'white';
-  ctx.lineWidth = 1.5;
-  S.sampleCloud.forEach(([z1, z2]) => {
-    const [px, py] = d2c(z1, z2);
-    ctx.beginPath();
-    ctx.arc(
-      Math.max(-10, Math.min(W + 10, px)),
-      Math.max(-10, Math.min(H + 10, py)),
-      4, 0, Math.PI * 2
-    );
-    ctx.stroke();
-  });
-  ctx.restore();
-}
-
 // Z-space → pixel coords for a canvas of arbitrary size W×H (uses S.bounds)
 function zToPx(zx, zy, W, H) {
   const {x0,x1,y0,y1} = S.bounds;
   return [(zx-x0)/(x1-x0)*W, (zy-y0)/(y1-y0)*H];
 }
 
-function drawSparkline(canvas, key) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
-  ctx.clearRect(0, 0, W, H);
-  const fns = {
-    normal:         x => Math.exp(-0.5 * x * x),
-    normal_shifted: x => Math.exp(-0.5 * (x - 2) * (x - 2)),
-    normal_wide:    x => Math.exp(-0.5 * (x / 3) * (x / 3)),
-    uniform:        x => (x >= -3 && x <= 3) ? 1 : 0,
-    laplace:        x => Math.exp(-Math.abs(x)),
-  };
-  const fn = fns[key];
-  const xs = Array.from({length: W}, (_, i) => (i / W) * 8 - 4);
-  const ys = xs.map(fn);
-  const maxY = Math.max(...ys);
-  ctx.beginPath();
-  ctx.strokeStyle = '#666';
-  ctx.lineWidth = 1.2;
-  xs.forEach((_, i) => {
-    const py = H - (ys[i] / maxY) * (H - 2) - 1;
-    i === 0 ? ctx.moveTo(i, py) : ctx.lineTo(i, py);
-  });
-  ctx.stroke();
-}
-
-// Draw a dashed 1σ ring on the mini-map or main canvas
-function drawSigmaRing(ctx, key, W, H) {
-  if (!S.bounds) return;
-  const {x0,x1} = S.bounds;
-  const pxPerUnit = W / (x1 - x0);
-  const [cx, cy] = zToPx(0, 0, W, H);
-  ctx.save();
-  ctx.strokeStyle = 'rgba(255,255,255,0.45)';
-  ctx.lineWidth = 1;
-  ctx.setLineDash([3, 3]);
+// ─── Glow heatmap density functions ──────────────────────────────────────────
+function computeDensity(z1, z2, key) {
   switch (key) {
-    case 'normal':
-      ctx.beginPath(); ctx.arc(cx, cy, pxPerUnit * 1, 0, Math.PI*2); ctx.stroke(); break;
-    case 'normal_shifted': {
-      const [sx, sy] = zToPx(2, 2, W, H);
-      ctx.beginPath(); ctx.arc(sx, sy, pxPerUnit * 1, 0, Math.PI*2); ctx.stroke(); break;
-    }
-    case 'normal_wide':
-      ctx.beginPath(); ctx.arc(cx, cy, pxPerUnit * 3, 0, Math.PI*2); ctx.stroke(); break;
-    case 'uniform':
-      break; // rectangle already drawn in overlay
-    case 'laplace':
-      ctx.beginPath(); ctx.arc(cx, cy, pxPerUnit * 0.65, 0, Math.PI*2); ctx.stroke(); break;
+    case 'normal':         return Math.exp(-0.5 * (z1*z1 + z2*z2));
+    case 'normal_shifted': return Math.exp(-0.5 * ((z1-2)*(z1-2) + (z2-2)*(z2-2)));
+    case 'normal_wide':    return Math.exp(-0.5 * ((z1/3)*(z1/3) + (z2/3)*(z2/3)));
+    case 'uniform':        return (z1 >= -3 && z1 <= 3 && z2 >= -3 && z2 <= 3) ? 1 : 0;
+    case 'laplace':        return Math.exp(-(Math.abs(z1) + Math.abs(z2)));
+    default:               return 0;
   }
-  ctx.setLineDash([]);
-  ctx.restore();
 }
 
-// Render scatter + 50 sample rings + 1σ ring onto the popover mini-map canvas
-function renderPopoverMiniMap(canvas, key, scatter) {
+// Render glow onto an offscreen canvas in base CSS-pixel space (matches scatter dots)
+function renderGlowHeatmap(key) {
+  const W = S.cssW, H = S.cssH;
+  const heat = document.createElement('canvas');
+  heat.width = W; heat.height = H;
+  const hCtx = heat.getContext('2d');
+  const GRID = 40;
+  const gsX = W / GRID, gsY = H / GRID;
+  const cellR = Math.max(gsX, gsY) * 0.95;
+  for (let i = 0; i < GRID; i++) {
+    for (let j = 0; j < GRID; j++) {
+      const px = i * gsX + gsX / 2;
+      const py = j * gsY + gsY / 2;
+      const [z1, z2] = c2d(px, py);  // base px → z-space (no Y flip, matches scatter dots)
+      const norm = Math.min(computeDensity(z1, z2, key), 1);
+      const alpha = 0.01 + norm * 0.24;
+      const grad = hCtx.createRadialGradient(px, py, 0, px, py, cellR);
+      grad.addColorStop(0, `rgba(255,255,255,${Math.min(alpha * 1.2, 0.30).toFixed(3)})`);
+      grad.addColorStop(1, `rgba(255,255,255,${(alpha * 0.08).toFixed(3)})`);
+      hCtx.fillStyle = grad;
+      hCtx.beginPath();
+      hCtx.arc(px, py, cellR, 0, Math.PI * 2);
+      hCtx.fill();
+    }
+  }
+  return heat;
+}
+
+let glowHeatmapCache = {};
+
+function getGlowHeatmap(key) {
+  if (!S.bounds || S.cssW < 2) return null;
+  if (!glowHeatmapCache[key]) glowHeatmapCache[key] = renderGlowHeatmap(key);
+  return glowHeatmapCache[key];
+}
+
+// Render scatter + glow preview onto the popover canvas (142×142)
+function renderPopoverPreview(canvas, key, scatter) {
   if (!scatter || scatter.length === 0 || !S.bounds) return;
   const ctx = canvas.getContext('2d');
   const W = canvas.width, H = canvas.height;
-  ctx.clearRect(0, 0, W, H);
   ctx.fillStyle = '#111';
   ctx.fillRect(0, 0, W, H);
 
@@ -1390,22 +1360,25 @@ function renderPopoverMiniMap(canvas, key, scatter) {
     ctx.fill();
   });
 
-  const samples = Array.from({length: 50}, () => SAMPLERS[key]());
-  ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-  ctx.lineWidth = 1;
-  samples.forEach(([z1, z2]) => {
-    const [px, py] = zToPx(z1, z2, W, H);
-    const cpx = Math.max(3, Math.min(W - 3, px));
-    const cpy = Math.max(3, Math.min(H - 3, py));
-    ctx.beginPath();
-    ctx.arc(cpx, cpy, 2, 0, Math.PI * 2);
-    ctx.stroke();
-  });
-
-  drawSigmaRing(ctx, key, W, H);
+  // 20×20 mini glow using flat squares for speed
+  const GRID = 20;
+  const gsX = W / GRID, gsY = H / GRID;
+  for (let i = 0; i < GRID; i++) {
+    for (let j = 0; j < GRID; j++) {
+      const px = i * gsX + gsX / 2;
+      const py = j * gsY + gsY / 2;
+      const {x0,x1,y0,y1} = S.bounds;
+      const z1 = x0 + px / W * (x1 - x0);
+      const z2 = y0 + py / H * (y1 - y0);
+      const norm = Math.min(computeDensity(z1, z2, key), 1);
+      const alpha = 0.01 + norm * 0.24;
+      ctx.fillStyle = `rgba(255,255,255,${alpha.toFixed(3)})`;
+      ctx.fillRect(px - gsX / 2, py - gsY / 2, gsX, gsY);
+    }
+  }
 }
 
-let popoverMiniMapRendered = {};
+let popoverPreviews = {};
 
 function initDistributionPicker() {
   const container = document.getElementById('dist-chips');
@@ -1415,16 +1388,9 @@ function initDistributionPicker() {
     chip.className = 'dist-chip';
     chip.title     = dist.formula;
 
-    const sparkCanvas = document.createElement('canvas');
-    sparkCanvas.width  = 38;
-    sparkCanvas.height = 16;
-    drawSparkline(sparkCanvas, dist.key);
-
     const lbl = document.createElement('span');
     lbl.textContent = dist.label;
     lbl.className   = 'dist-chip-label';
-
-    chip.appendChild(sparkCanvas);
     chip.appendChild(lbl);
 
     let hoverTimer = null;
@@ -1450,20 +1416,19 @@ function setDistribution(key) {
     document.getElementById(`chip-${d.key}`)
       .classList.toggle('dist-chip-active', d.key === key);
   });
-  regenerateSampleCloud();
-  popoverMiniMapRendered = {};
   hidePopover();
+  // Glow updates automatically on next rAF frame via getGlowHeatmap()
 }
 
 function showPopover(dist, chipEl) {
   const popover = document.getElementById('dist-popover');
-  const minimap = document.getElementById('popover-minimap');
+  const preview = document.getElementById('popover-preview');
   document.getElementById('popover-title').textContent      = `${dist.label}  ·  ${dist.formula}`;
   document.getElementById('popover-annotation').textContent = dist.annotation;
 
-  if (!popoverMiniMapRendered[dist.key]) {
-    renderPopoverMiniMap(minimap, dist.key, S.beta === 1 ? S.scatterVAE : S.scatterAE);
-    popoverMiniMapRendered[dist.key] = true;
+  if (!popoverPreviews[dist.key]) {
+    renderPopoverPreview(preview, dist.key, S.beta === 1 ? S.scatterVAE : S.scatterAE);
+    popoverPreviews[dist.key] = true;
   }
 
   const pw = 162;
@@ -1483,8 +1448,14 @@ function hidePopover() {
   document.getElementById('dist-popover').style.display = 'none';
 }
 
-function handleSample() {
-  regenerateSampleCloud();
+async function handleSample() {
+  const [z1, z2] = SAMPLERS[S.currentDistribution]();
+  S.cursorZ = [z1, z2];
+  const dist = DISTRIBUTIONS.find(d => d.key === S.currentDistribution);
+  document.getElementById('cursor-label').textContent =
+    `z = [${z1.toFixed(3)}, ${z2.toFixed(3)}]  (${dist.label} sample)`;
+  await decodeAt(z1, z2, decodeCanvas);
+  await decodeNeighbors(z1, z2);
 }
 
 // ─── Fullscreen ───────────────────────────────────────────────────────────────
