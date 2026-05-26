@@ -15,8 +15,7 @@ This tool maps high-dimensional digit data down to a **2D latent space grid**, a
 ## Demo Video
 
 Here's a quick look at this cool tool in action:
-
-<video src="https://github.com/anushka-vijay/draw-with-vae/blob/main/assets/draw_with_vae.mp4?raw=true" width="100%" controls></video>
+<video src="https://github.com/anushka-vijay/draw-with-vae/raw/main/video/draw_with_vae.mp4" width="100%" controls></video>
 
 ---
 
