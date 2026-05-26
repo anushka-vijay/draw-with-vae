@@ -1,0 +1,1972 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Draw with VAE</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #111;
+        color: #e8e8e8;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      /* ── Header ── */
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 18px;
+        background: #1a1a1a;
+        border-bottom: 1px solid #2a2a2a;
+        flex-shrink: 0;
+      }
+      header h1 {
+        font-size: 13px;
+        font-weight: 600;
+        color: #ccc; /* Increased contrast */
+        letter-spacing: 0.04em;
+      }
+      header h1 span {
+        color: #aaa;
+      }
+
+      .beta-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .beta-row label {
+        font-size: 11px; /* Increased contrast */
+        color: #999;
+      }
+      .toggle {
+        display: flex;
+        background: #222;
+        border: 1px solid #333;
+        border-radius: 8px; /* Increased contrast */
+        overflow: hidden;
+        cursor: pointer;
+      }
+      .toggle-opt {
+        padding: 5px 16px;
+        font-size: 12px;
+        font-weight: 500;
+        color: #999; /* Increased contrast */
+        transition: background 0.2s, color 0.2s;
+        user-select: none;
+      }
+      .toggle-opt.active {
+        background: #333;
+        color: #ddd;
+      }
+
+      /* ── Three panels ── */
+      main {
+        display: grid;
+        grid-template-columns: 240px 1fr 260px;
+        flex: 1;
+        min-height: 0;
+        gap: 10px;
+        padding: 10px;
+        background: #111;
+      }
+      .panel {
+        background: #1c1c1c;
+        border: 1px solid #2a2a2a;
+        border-radius: 14px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .panel-title {
+        padding: 10px 16px;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        color: #aaa; /* Increased contrast */
+        border-bottom: 1px solid #252525;
+        background: #1c1c1c;
+        flex-shrink: 0;
+        text-transform: uppercase;
+      }
+      .panel-body {
+        flex: 1;
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 9px;
+        overflow-y: auto;
+        overflow-x: hidden;
+        background: #161616;
+        border-radius: 0 0 14px 14px;
+      }
+
+      /* ── Draw canvas ── */
+      #draw-canvas {
+        width: 200px;
+        height: 200px;
+        background: #0a0a0a;
+        border: 1px solid #2e2e2e;
+        border-radius: 10px;
+        cursor: crosshair;
+        flex-shrink: 0;
+        image-rendering: pixelated;
+      }
+
+      /* ── Stat chips ── */
+      .chip {
+        width: 100%;
+        background: #1e1e1e;
+        border: 1px solid #2a2a2a;
+        border-radius: 9px;
+        padding: 8px 11px;
+      }
+      .chip-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+      }
+      .chip-label {
+        font-size: 10px; /* Increased contrast */
+        color: #999;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        flex-shrink: 0;
+      }
+      .chip-val {
+        font-size: 12px;
+        color: #ddd; /* Increased contrast */
+        font-family: "SF Mono", "Consolas", monospace;
+        text-align: right;
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .info-btn {
+        background: none;
+        border: 1px solid #333;
+        border-radius: 50%;
+        color: #888; /* Increased contrast */
+        font-size: 10px;
+        width: 16px;
+        height: 16px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        transition: border-color 0.15s, color 0.15s;
+        padding: 0;
+        line-height: 1;
+      }
+      .info-btn:hover {
+        /* Increased contrast */
+        border-color: #666;
+        color: #999;
+      }
+      .info-panel {
+        display: none;
+        margin-top: 8px;
+        padding: 8px 10px;
+        background: #131313;
+        border-left: 2px solid #444;
+        border-radius: 0 5px 5px 0;
+        position: relative;
+      }
+      .info-close {
+        position: absolute;
+        top: 6px;
+        right: 8px;
+        background: none;
+        border: none;
+        color: #555;
+        font-size: 14px;
+        cursor: pointer;
+        line-height: 1;
+        padding: 0 2px;
+      }
+      .info-close:hover {
+        color: #999;
+      }
+      .info-formula {
+        font-size: 11px;
+        color: #888;
+        font-family: "SF Mono", "Consolas", monospace;
+        margin-bottom: 5px;
+        line-height: 1.5;
+        padding-right: 16px;
+      }
+      .info-gloss {
+        font-size: 10px;
+        color: #555;
+        line-height: 1.6;
+      }
+
+      /* ── Buttons ── */
+      .btn {
+        width: 100%;
+        padding: 8px 12px;
+        background: #222;
+        border: 1px solid #333;
+        border-radius: 9px;
+        color: #ccc; /* Increased contrast */
+        font-size: 12px;
+        font-family: inherit;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background 0.15s, border-color 0.15s, color 0.15s;
+      }
+      .btn:hover {
+        background: #2a2a2a;
+        border-color: #444;
+        color: #ccc;
+      }
+      .btn-accent {
+        background: #252525;
+        border-color: #3a3a3a;
+        color: #ccc;
+        font-weight: 600;
+      }
+      .btn-accent:hover {
+        background: #2e2e2e;
+        border-color: #505050;
+        color: #eee;
+      }
+
+      /* ── Scatter canvas ── */
+      #scatter-wrap {
+        width: 100%;
+        flex: 1;
+        min-height: 0;
+        position: relative;
+      }
+      #scatter-canvas {
+        display: block;
+        border: 1px solid #252525;
+        border-radius: 10px;
+        cursor: crosshair;
+        background: #0e0e0e;
+      }
+      #cursor-label {
+        font-size: 11px; /* Increased contrast */
+        color: #999;
+        text-align: center;
+        font-family: "SF Mono", "Consolas", monospace;
+        flex-shrink: 0;
+      }
+
+      /* ── Decode panel ── */
+      #decode-canvas {
+        width: 150px;
+        height: 150px;
+        image-rendering: pixelated;
+        border: 1px solid #2e2e2e;
+        border-radius: 10px;
+        background: #000;
+        flex-shrink: 0;
+      }
+      .neighbor-section {
+        width: 100%;
+      } /* Increased contrast */
+      .neighbor-title {
+        font-size: 9px;
+        color: #444;
+        text-align: center;
+        margin-bottom: 6px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      .neighbor-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 5px;
+      }
+      .neighbor-grid canvas {
+        width: 100%;
+        aspect-ratio: 1;
+        image-rendering: pixelated;
+        border: 1px solid #252525;
+        border-radius: 7px;
+        background: #000;
+        display: block;
+      }
+
+      /* ── Legend footer ── */
+      footer {
+        border-top: 1px solid #222;
+        padding: 6px 18px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        background: #1a1a1a;
+        flex-shrink: 0;
+      }
+      .legend-label {
+        font-size: 10px; /* Increased contrast */
+        color: #888;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      .legend-items {
+        /* Increased contrast */
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 4px; /* Increased contrast */
+        font-size: 11px;
+        color: #555;
+      }
+      .legend-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+
+      /* ── Distribution picker chips ── */
+      #dist-chips {
+        display: flex;
+        gap: 5px;
+        width: 100%;
+      }
+      .dist-chip {
+        cursor: pointer;
+        border: 1px solid #363636;
+        border-radius: 7px;
+        padding: 5px 4px 4px;
+        background: #1e1e1e;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 3px;
+        flex: 1;
+        min-width: 0;
+        transition: border-color 0.12s, background 0.12s, transform 0.12s,
+          box-shadow 0.12s;
+      }
+      .dist-chip:hover {
+        border-color: #777;
+        background: #2a2a2a;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4),
+          0 0 5px rgba(255, 204, 0, 0.15);
+      }
+      .dist-chip-active {
+        border-color: #5a5a5a !important;
+        background: #2c2c2c !important;
+      }
+      .dist-chip-label {
+        font-size: 8.5px;
+        color: #aaa; /* Increased contrast */
+        font-family: "SF Mono", "Consolas", monospace;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        width: 100%;
+        text-align: center;
+      }
+      .dist-chip-active .dist-chip-label {
+        color: #aaa;
+      }
+      /* Popover (position:fixed, positioned via JS) */
+      #dist-popover {
+        display: none;
+        position: fixed;
+        z-index: 1000;
+        background: #1a1a1a;
+        border: 1px solid #383838;
+        border-radius: 8px;
+        padding: 10px;
+        width: 162px;
+        pointer-events: none;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65);
+      }
+      #popover-title {
+        font-size: 10px; /* Increased contrast */
+        color: #ccc;
+        font-family: "SF Mono", "Consolas", monospace;
+        margin-bottom: 7px;
+        line-height: 1.45;
+      }
+      #popover-preview {
+        /* Increased contrast */
+        border-radius: 5px;
+        display: block;
+        image-rendering: pixelated;
+      }
+      #popover-annotation {
+        font-size: 9px;
+        color: #5a5a5a;
+        margin-top: 7px; /* Increased contrast */
+        line-height: 1.5;
+      }
+
+      /* ── Fullscreen button ── */
+      .fs-btn {
+        background: none;
+        border: 1px solid #333;
+        border-radius: 5px;
+        color: #999; /* Increased contrast */
+        font-size: 13px;
+        width: 22px;
+        height: 22px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        line-height: 1;
+        transition: border-color 0.15s, color 0.15s;
+        flex-shrink: 0;
+      }
+      .fs-btn:hover {
+        border-color: #666;
+        color: #999;
+      }
+      #latent-panel:fullscreen,
+      #latent-panel:-webkit-full-screen {
+        display: flex;
+        flex-direction: column;
+        background: #1c1c1c;
+      }
+      #latent-panel:fullscreen .panel-body,
+      #latent-panel:-webkit-full-screen .panel-body {
+        flex: 1;
+        min-height: 0;
+      }
+      #latent-panel:fullscreen #scatter-wrap,
+      #latent-panel:-webkit-full-screen #scatter-wrap {
+        flex: 1;
+        min-height: 0;
+      }
+
+      /* ── Loading overlay ── */
+      #loading {
+        position: fixed;
+        inset: 0;
+        background: #111;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        z-index: 999;
+      }
+      #loading-msg {
+        font-size: 13px; /* Increased contrast */
+        color: #999;
+        letter-spacing: 0.04em;
+      }
+      .load-bar {
+        width: 180px;
+        height: 2px;
+        background: #222;
+        border-radius: 2px;
+        overflow: hidden;
+      }
+      .load-fill {
+        height: 100%;
+        background: #555;
+        border-radius: 2px;
+        animation: lpulse 1.4s ease-in-out infinite;
+      }
+      @keyframes lpulse {
+        0%,
+        100% {
+          width: 15%;
+          margin-left: 0;
+        }
+        50% {
+          width: 55%;
+          margin-left: 25%;
+        }
+      }
+      #error-msg {
+        display: none;
+        font-size: 11px;
+        color: #884444;
+        margin-top: 8px;
+        text-align: center;
+        max-width: 360px;
+        line-height: 1.6;
+        font-family: "SF Mono", monospace;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Loading overlay -->
+    <div id="loading">
+      <div id="loading-msg">Initializing…</div>
+      <div class="load-bar"><div class="load-fill"></div></div>
+      <div id="error-msg"></div>
+    </div>
+
+    <!-- Header -->
+    <header>
+      <h1>VAE <span>Latent Manifold</span> Lab</h1>
+      <div class="beta-row">
+        <label>MODEL</label>
+        <div class="toggle" id="beta-toggle" onclick="toggleBeta()">
+          <div class="toggle-opt active" id="opt-vae">VAE β=1</div>
+          <div class="toggle-opt" id="opt-ae">AE β=0</div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Three panels -->
+    <main>
+      <!-- Panel 1: Draw -->
+      <section class="panel">
+        <div class="panel-title">1 · DRAW</div>
+        <div class="panel-body">
+          <canvas id="draw-canvas" width="196" height="196"></canvas>
+
+          <!-- z_mean chip -->
+          <div class="chip">
+            <div class="chip-row">
+              <span class="chip-label">z = μ+σε</span>
+              <span class="chip-val" id="val-zmean">—</span>
+              <button class="info-btn" onclick="toggleInfo('ip-zmean')">
+                i
+              </button>
+            </div>
+            <div class="info-panel" id="ip-zmean">
+              <button class="info-close" onclick="toggleInfo('ip-zmean')">
+                ×
+              </button>
+              <div class="info-formula">z = μ + σ · ε, ε ~ N(0, I)</div>
+              <div class="info-gloss">
+                Reparameterization trick: ε is sampled separately so gradients
+                can flow through μ and σ during backprop.
+              </div>
+            </div>
+          </div>
+
+          <!-- sigma chip -->
+          <div class="chip">
+            <div class="chip-row">
+              <span class="chip-label">σ (spread)</span>
+              <span class="chip-val" id="val-sigma">—</span>
+              <button class="info-btn" onclick="toggleInfo('ip-sigma')">
+                i
+              </button>
+            </div>
+            <div class="info-panel" id="ip-sigma">
+              <button class="info-close" onclick="toggleInfo('ip-sigma')">
+                ×
+              </button>
+              <div class="info-formula">q(z|x) = N(μ(x), σ²(x))</div>
+              <div class="info-gloss">
+                The encoder outputs a distribution, not a point. Rings on the
+                map show 1σ and 2σ confidence ellipses.
+              </div>
+            </div>
+          </div>
+
+          <button class="btn" onclick="clearDraw()">Clear canvas</button>
+        </div>
+      </section>
+
+      <!-- Panel 2: Latent Space -->
+      <section class="panel" id="latent-panel">
+        <div
+          class="panel-title"
+          style="
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+          "
+        >
+          <span>2 · LATENT SPACE</span>
+          <button
+            class="fs-btn"
+            id="fs-btn"
+            onclick="toggleFullscreen()"
+            title="Toggle fullscreen"
+          >
+            ⛶
+          </button>
+        </div>
+        <div class="panel-body">
+          <div id="scatter-wrap">
+            <canvas id="scatter-canvas"></canvas>
+          </div>
+          <div id="cursor-label">hover the map to decode</div>
+
+          <!-- Live KL Drift -->
+          <div class="chip" id="chip-live-kl">
+            <div class="chip-row">
+              <span class="chip-label">Live KL Drift</span>
+              <span class="chip-val" id="val-live-kl">0.000</span>
+              <button class="info-btn" onclick="toggleInfo('ip-live-kl')">
+                i
+              </button>
+            </div>
+            <div class="info-panel" id="ip-live-kl">
+              <button class="info-close" onclick="toggleInfo('ip-live-kl')">
+                ×
+              </button>
+              <div class="info-formula">D_KL(Sample || Prior)</div>
+              <div class="info-gloss">
+                Measures the 'drift' between your sample and the Target Prior
+                (N(0,1)). High values indicate you are sampling from 'uncharted'
+                territory where the decoder is less reliable.
+              </div>
+            </div>
+          </div>
+
+          <!-- KL loss -->
+          <div class="chip" id="chip-kl-loss">
+            <div class="chip-row">
+              <span class="chip-label">KL loss</span>
+              <span class="chip-val" id="val-kl">—</span>
+              <button class="info-btn" onclick="toggleInfo('ip-kl')">i</button>
+            </div>
+            <div class="info-panel" id="ip-kl">
+              <button class="info-close" onclick="toggleInfo('ip-kl')">
+                ×
+              </button>
+              <div class="info-formula">KL = −½ Σ(1 + log σ² − μ² − σ²)</div>
+              <div class="info-gloss">
+                Measures how far the encoder's distribution drifts from N(0,1).
+                This term organizes the latent clusters.
+              </div>
+            </div>
+          </div>
+
+          <!-- Recon loss -->
+          <div class="chip">
+            <div class="chip-row">
+              <span class="chip-label">Recon loss</span>
+              <span class="chip-val" id="val-recon">—</span>
+              <button class="info-btn" onclick="toggleInfo('ip-recon')">
+                i
+              </button>
+            </div>
+            <div class="info-panel" id="ip-recon">
+              <button class="info-close" onclick="toggleInfo('ip-recon')">
+                ×
+              </button>
+              <div class="info-formula">
+                ℒ_recon = −Σ[x·log x̂ + (1−x)·log(1−x̂)]
+              </div>
+              <div class="info-gloss">
+                Binary cross-entropy per pixel — how different is the
+                reconstruction from your original drawing?
+              </div>
+            </div>
+          </div>
+
+          <!-- Total loss -->
+          <div class="chip">
+            <div class="chip-row">
+              <span class="chip-label">Total loss</span>
+              <span class="chip-val" id="val-total">—</span>
+              <button class="info-btn" onclick="toggleInfo('ip-total')">
+                i
+              </button>
+            </div>
+            <div class="info-panel" id="ip-total">
+              <button class="info-close" onclick="toggleInfo('ip-total')">
+                ×
+              </button>
+              <div class="info-formula">
+                ℒ = ℒ_recon + β · KL(q(z|x) ‖ p(z))
+              </div>
+              <div class="info-gloss">
+                Good reconstructions, penalized by how far the encoder drifts
+                from N(0,1). β controls that trade-off.
+              </div>
+            </div>
+          </div>
+
+          <!-- Beta chip -->
+          <div class="chip">
+            <div class="chip-row">
+              <span class="chip-label">β</span>
+              <span class="chip-val" id="val-beta">1</span>
+              <button class="info-btn" onclick="toggleInfo('ip-beta')">
+                i
+              </button>
+            </div>
+            <div class="info-panel" id="ip-beta">
+              <button class="info-close" onclick="toggleInfo('ip-beta')">
+                ×
+              </button>
+              <div class="info-formula">β ∈ {0,1} → ℒ = ℒ_recon + β·KL</div>
+              <div class="info-gloss">
+                β=0 drops the KL term entirely. The encoder scatters clusters
+                anywhere — no organization enforced. Toggle and watch the map.
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Panel 3: Decode -->
+      <section class="panel">
+        <div class="panel-title">3 · DECODE</div>
+        <div class="panel-body">
+          <canvas id="decode-canvas" width="28" height="28"></canvas>
+
+          <div class="neighbor-section">
+            <div class="neighbor-title">neighbors ±0.3 in z-space</div>
+            <div class="neighbor-grid">
+              <canvas id="nb0" width="28" height="28"></canvas>
+              <canvas id="nb1" width="28" height="28"></canvas>
+              <canvas id="nb2" width="28" height="28"></canvas>
+              <canvas id="nb3" width="28" height="28"></canvas>
+            </div>
+          </div>
+
+          <button
+            class="btn btn-accent"
+            id="btn-sample"
+            onclick="handleSample()"
+          >
+            Sample from <span id="dist-label">N(0,1)</span>
+          </button>
+          <div id="dist-chips"></div>
+          <button class="btn" onclick="animatePath()">Animate path</button>
+        </div>
+      </section>
+    </main>
+
+    <!-- Legend -->
+    <footer>
+      <span class="legend-label">Digits</span>
+      <div class="legend-items" id="legend"></div>
+    </footer>
+
+    <!-- Distribution picker popover (fixed-position, moved by JS) -->
+    <div id="dist-popover">
+      <div id="popover-title"></div>
+      <canvas id="popover-preview" width="142" height="142"></canvas>
+      <div id="popover-annotation"></div>
+    </div>
+
+    <!-- Patch Keras 3 model.json format before TF.js sees it -->
+    <script>
+      (function () {
+        // Convert a single keras_tensor reference to [name, node_idx, tensor_idx, {}]
+        function tensorRef(arg) {
+          if (arg && arg.class_name === "__keras_tensor__") {
+            const [name, ni, ti] = arg.config.keras_history;
+            return [name, ni, ti, {}];
+          }
+          return arg;
+        }
+
+        // Convert Keras 3 inbound_nodes to Keras 2 format TF.js understands
+        function fixInboundNodes(nodes) {
+          if (!Array.isArray(nodes) || nodes.length === 0) return nodes;
+          return nodes.map((node) => {
+            if (Array.isArray(node)) return node; // already Keras 2 format
+            if (node && node.args) {
+              const args = node.args;
+              // Multi-input: args = [[tensor1, tensor2, ...]]  (one element wrapping a list)
+              // Single-input: args = [tensor]
+              if (args.length === 1 && Array.isArray(args[0])) {
+                return args[0].map(tensorRef); // flatten the inner list
+              }
+              return args.map(tensorRef);
+            }
+            return node;
+          });
+        }
+
+        const _fetch = window.fetch.bind(window);
+        window.fetch = async function (url, opts) {
+          const res = await _fetch(url, opts);
+          if (typeof url === "string" && url.includes("model.json")) {
+            try {
+              const json = await res.clone().json();
+              const layers =
+                json?.modelTopology?.model_config?.config?.layers || [];
+              for (const l of layers) {
+                const c = l.config || {};
+                // batch_shape → batch_input_shape
+                if ("batch_shape" in c) {
+                  c.batch_input_shape = c.batch_shape;
+                  delete c.batch_shape;
+                }
+                // DTypePolicy object → plain string
+                if (
+                  c.dtype &&
+                  typeof c.dtype === "object" &&
+                  c.dtype.class_name === "DTypePolicy"
+                )
+                  c.dtype = c.dtype.config?.name || "float32";
+                // Remove Keras 3-only fields
+                [
+                  "optional",
+                  "ragged",
+                  "module",
+                  "registered_name",
+                  "build_config",
+                  "compile_config",
+                  "autocast",
+                  "quantization_config",
+                ].forEach((f) => delete c[f]);
+                // inbound_nodes: Keras 3 object format → Keras 2 array format
+                if (l.inbound_nodes)
+                  l.inbound_nodes = fixInboundNodes(l.inbound_nodes);
+              }
+              // input_layers / output_layers: Keras 3 drops outer array for single I/O
+              // ["name",0,0] → [["name",0,0]]
+              const mc = json?.modelTopology?.model_config?.config;
+              if (mc) {
+                if (
+                  Array.isArray(mc.input_layers) &&
+                  typeof mc.input_layers[0] === "string"
+                )
+                  mc.input_layers = [mc.input_layers];
+                if (
+                  Array.isArray(mc.output_layers) &&
+                  typeof mc.output_layers[0] === "string"
+                )
+                  mc.output_layers = [mc.output_layers];
+              }
+              return new Response(JSON.stringify(json), {
+                status: res.status,
+                statusText: res.statusText,
+                headers: { "Content-Type": "application/json" },
+              });
+            } catch (e) {
+              return res;
+            }
+          }
+          return res;
+        };
+      })();
+    </script>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
+    <script>
+      "use strict";
+
+      // Register the custom Sampling layer so TF.js can load the encoder
+      class SamplingLayer extends tf.layers.Layer {
+        constructor(config) {
+          super(config || {});
+        }
+        call(inputs) {
+          return tf.tidy(() => {
+            const [mu, logVar] = inputs;
+            const eps = tf.randomNormal(mu.shape);
+            return tf.add(mu, tf.mul(tf.exp(tf.mul(0.5, logVar)), eps));
+          });
+        }
+        computeOutputShape(inputShape) {
+          return inputShape[0];
+        }
+        static get className() {
+          return "Sampling";
+        }
+      }
+      tf.serialization.registerClass(SamplingLayer);
+
+      // ─── Palette ─────────────────────────────────────────────────────────────────
+      const COLORS = [
+        "#e6194b",
+        "#3cb44b",
+        "#ffe119",
+        "#4363d8",
+        "#f58231",
+        "#911eb4",
+        "#42d4f4",
+        "#f032e6",
+        "#a9a900",
+        "#fabed4",
+      ];
+
+      // ─── State ───────────────────────────────────────────────────────────────────
+      const S = {
+        beta: 1,
+        decoderVAE: null,
+        decoderAE: null,
+        encoderAE: null, // Add this
+        encoderVAE: null,
+        scatterVAE: [],
+        scatterAE: [],
+        bounds: null, // { x0,x1,y0,y1 } unified across both datasets
+        cursorZ: [0, 0],
+        encodedZ: null,
+        encodedSigma: null,
+        activeInfo: null,
+        lastDecode: 0,
+        pulseAlpha: 0,
+        pathAnim: false,
+        drawnPixels: null, // Float32Array[784] — last drawing, for recon loss
+        view: { scale: 1, panX: 0, panY: 0 },
+        cssW: 1,
+        cssH: 1, // CSS display dimensions, updated by sizescatterCanvas
+        currentDistribution: "normal",
+        currentSigma: 0.5,
+      };
+
+      // Pan gesture tracking (transient UI state, not app state)
+      const pan = {
+        active: false,
+        startSx: 0,
+        startSy: 0,
+        startPanX: 0,
+        startPanY: 0,
+        didMove: false,
+      };
+
+      // ─── DOM ─────────────────────────────────────────────────────────────────────
+      const drawCanvas = document.getElementById("draw-canvas");
+      const scatterCanvas = document.getElementById("scatter-canvas");
+      const decodeCanvas = document.getElementById("decode-canvas");
+      const nbCanvases = [0, 1, 2, 3].map((i) =>
+        document.getElementById("nb" + i)
+      );
+      const drawCtx = drawCanvas.getContext("2d");
+      const scatterCtx = scatterCanvas.getContext("2d");
+
+      // Offscreen canvas — scatter dots rendered here once, blitted each frame
+      const offscreen = document.createElement("canvas");
+      const offCtx = offscreen.getContext("2d");
+
+      // ─── Legend ──────────────────────────────────────────────────────────────────
+      const legendEl = document.getElementById("legend");
+      for (let i = 0; i < 10; i++) {
+        legendEl.innerHTML += `<div class="legend-item"><div class="legend-dot" style="background:${COLORS[i]}"></div>${i}</div>`;
+      }
+
+      // ─── Drawing canvas init ─────────────────────────────────────────────────────
+      drawCtx.fillStyle = "#000";
+      drawCtx.fillRect(0, 0, 196, 196);
+
+      // ─── Model loader with timeout ───────────────────────────────────────────────
+      async function loadModel(path, msgEl) {
+        const timeout = new Promise((_, reject) =>
+          setTimeout(
+            () => reject(new Error(`Timeout loading ${path} after 15s`)),
+            15000
+          )
+        );
+        try {
+          return await Promise.race([tf.loadLayersModel(path), timeout]);
+        } catch (e) {
+          throw new Error(`Failed loading ${path}: ${e.message}`);
+        }
+      }
+
+      // ─── Init ────────────────────────────────────────────────────────────────────
+      async function init() {
+        const msg = document.getElementById("loading-msg");
+        try {
+          msg.textContent = "Initialising TF.js backend…";
+          await tf.setBackend("cpu");
+          await tf.ready();
+
+          const yield_ = () => new Promise((r) => setTimeout(r, 0));
+
+          msg.textContent = "Loading scatter data…";
+          const [svae, sae] = await Promise.all([
+            fetch("scatter_vae.json").then((r) => r.json()),
+            fetch("scatter_ae.json").then((r) => r.json()),
+          ]);
+          S.scatterVAE = svae;
+          S.scatterAE = sae;
+          computeBounds(svae, sae);
+          initDistributionPicker();
+          await yield_();
+
+          msg.textContent = "Loading VAE decoder…";
+          S.decoderVAE = await loadModel("tfjs_decoder_vae/model.json", msg);
+          await yield_();
+
+          msg.textContent = "Loading AE decoder…";
+          S.decoderAE = await loadModel("tfjs_decoder_ae/model.json", msg);
+          await yield_();
+
+          msg.textContent = "Loading VAE encoder…";
+          S.encoderVAE = await loadModel("tfjs_encoder_vae/model.json", msg);
+          await yield_();
+
+          msg.textContent = "Loading AE encoder…";
+          S.encoderAE = await loadModel("tfjs_encoder_ae/model.json", msg); // Add this
+          await yield_();
+
+          msg.textContent = "Warming up…";
+          const d2 = tf.zeros([1, 2]);
+          const d28 = tf.zeros([1, 28, 28, 1]);
+          const outsVAE = S.encoderVAE.predict(d28);
+          const outsAE = S.encoderAE.predict(d28);
+          tf.dispose([
+            d2,
+            d28,
+            S.decoderVAE.predict(d2),
+            S.decoderAE.predict(d2),
+            ...outsVAE,
+            ...outsAE,
+          ]);
+
+          document.getElementById("loading").style.display = "none";
+          sizescatterCanvas();
+          requestAnimationFrame(rafLoop);
+        } catch (e) {
+          msg.textContent = "Failed to load models.";
+          const em = document.getElementById("error-msg");
+          em.style.display = "block";
+          const detail = e?.message || e?.toString() || JSON.stringify(e);
+          em.textContent = detail;
+          em.style.whiteSpace = "pre-wrap";
+          console.error("Full error:", e);
+          console.error("Stack:", e?.stack);
+        }
+      }
+
+      // ─── Bounds ──────────────────────────────────────────────────────────────────
+      function computeBounds(a, b) {
+        const all = [...a, ...b];
+        const xs = all.map((p) => p.x),
+          ys = all.map((p) => p.y);
+        const px = (Math.max(...xs) - Math.min(...xs)) * 0.08;
+        const py = (Math.max(...ys) - Math.min(...ys)) * 0.08;
+        S.bounds = {
+          x0: Math.min(...xs) - px,
+          x1: Math.max(...xs) + px,
+          y0: Math.min(...ys) - py,
+          y1: Math.max(...ys) + py,
+        };
+      }
+
+      // ─── Coordinate conversion ───────────────────────────────────────────────────
+      function d2c(dx, dy) {
+        const { x0, x1, y0, y1 } = S.bounds;
+        const W = S.cssW,
+          H = S.cssH;
+        return [((dx - x0) / (x1 - x0)) * W, ((dy - y0) / (y1 - y0)) * H];
+      }
+      function c2d(cx, cy) {
+        const { x0, x1, y0, y1 } = S.bounds;
+        const W = S.cssW,
+          H = S.cssH;
+        return [x0 + (cx / W) * (x1 - x0), y0 + (cy / H) * (y1 - y0)];
+      }
+      // Base canvas pixels → screen (zoom-aware) pixels
+      function baseToScreen(bx, by) {
+        return [
+          S.view.panX + bx * S.view.scale,
+          S.view.panY + by * S.view.scale,
+        ];
+      }
+      // Screen pixels → base canvas pixels
+      function screenToBase(sx, sy) {
+        return [
+          (sx - S.view.panX) / S.view.scale,
+          (sy - S.view.panY) / S.view.scale,
+        ];
+      }
+      // Data coords → screen pixels (combines d2c + baseToScreen)
+      function d2s(dx, dy) {
+        return baseToScreen(...d2c(dx, dy));
+      }
+      // Mouse/wheel event → CSS pixel coords (context is DPR-scaled, so CSS = logical)
+      function canvasPixels(e) {
+        const r = scatterCanvas.getBoundingClientRect();
+        return [
+          ((e.clientX - r.left) * S.cssW) / r.width,
+          ((e.clientY - r.top) * S.cssH) / r.height,
+        ];
+      }
+
+      // ─── Scatter canvas sizing ────────────────────────────────────────────────────
+      function sizescatterCanvas() {
+        const wrap = document.getElementById("scatter-wrap");
+        const dpr = window.devicePixelRatio || 1;
+        const cssW = wrap.clientWidth;
+        const wh = wrap.clientHeight;
+        const cssH = Math.max(
+          document.fullscreenElement
+            ? wh || cssW
+            : Math.min(cssW * 0.75, wh || cssW * 0.75),
+          100
+        );
+        // Physical canvas = CSS size × DPR for crisp rendering on retina screens
+        scatterCanvas.width = cssW * dpr;
+        scatterCanvas.height = cssH * dpr;
+        scatterCanvas.style.width = cssW + "px";
+        scatterCanvas.style.height = cssH + "px";
+        offscreen.width = cssW * dpr;
+        offscreen.height = cssH * dpr;
+        // Scale contexts so all drawing commands work in CSS-pixel space
+        scatterCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        offCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        S.cssW = cssW;
+        S.cssH = cssH;
+        glowHeatmapCache = {}; // canvas dimensions changed — re-render glows
+        const pts = S.beta === 1 ? S.scatterVAE : S.scatterAE;
+        renderOffscreen(pts);
+        autoFitView(pts);
+      }
+      window.addEventListener("resize", sizescatterCanvas);
+
+      // ─── Auto-fit view to data extent ────────────────────────────────────────────
+      function autoFitView(pts) {
+        if (!pts || pts.length === 0 || !S.bounds) return;
+        const xs = pts.map((p) => p.x),
+          ys = pts.map((p) => p.y);
+        const minX = Math.min(...xs),
+          maxX = Math.max(...xs);
+        const minY = Math.min(...ys),
+          maxY = Math.max(...ys);
+        const W = S.cssW,
+          H = S.cssH;
+        const [bMinX, bMinY] = d2c(minX, minY);
+        const [bMaxX, bMaxY] = d2c(maxX, maxY);
+        const dataW = bMaxX - bMinX,
+          dataH = bMaxY - bMinY;
+        if (dataW < 1 || dataH < 1) return;
+        const scale = Math.min(W / dataW, H / dataH) * 0.82;
+        const bCx = (bMinX + bMaxX) / 2,
+          bCy = (bMinY + bMaxY) / 2;
+        S.view.scale = scale;
+        S.view.panX = W / 2 - bCx * scale;
+        S.view.panY = H / 2 - bCy * scale;
+      }
+
+      // ─── Offscreen dot rendering ─────────────────────────────────────────────────
+      function renderOffscreen(pts) {
+        offCtx.clearRect(0, 0, S.cssW, S.cssH);
+
+        // Density Cloud: Visualizing where the real data "lives"
+        offCtx.globalAlpha = 0.05;
+        offCtx.fillStyle = "#555";
+        for (const p of pts) {
+          const [cx, cy] = d2c(p.x, p.y);
+          offCtx.beginPath();
+          offCtx.arc(cx, cy, 2, 0, Math.PI * 2);
+          offCtx.fill();
+        }
+        offCtx.globalAlpha = 1.0;
+
+        for (const p of pts) {
+          const [cx, cy] = d2c(p.x, p.y);
+          offCtx.beginPath();
+          offCtx.arc(cx, cy, 2, 0, Math.PI * 2);
+          offCtx.fillStyle = COLORS[p.label] + "b0";
+          offCtx.fill();
+        }
+      }
+
+      // ─── RAF render loop ─────────────────────────────────────────────────────────
+      function rafLoop() {
+        const W = S.cssW,
+          H = S.cssH;
+        scatterCtx.clearRect(0, 0, W, H);
+
+        // Dots + distribution overlay inside zoom/pan transform
+        scatterCtx.save();
+        scatterCtx.translate(S.view.panX, S.view.panY);
+        scatterCtx.scale(S.view.scale, S.view.scale);
+        scatterCtx.drawImage(offscreen, 0, 0, W, H);
+        const glowCanvas = getGlowHeatmap(S.currentDistribution);
+        if (glowCanvas) {
+          scatterCtx.globalAlpha = 1;
+          scatterCtx.drawImage(glowCanvas, 0, 0, W, H);
+        }
+        scatterCtx.restore();
+
+        // All overlays in CSS-pixel (zoom-aware screen) coords
+        if (S.encodedZ) {
+          const [mx, my] = d2s(S.encodedZ[0], S.encodedZ[1]);
+          const { x0, x1, y0, y1 } = S.bounds;
+          const scx = (W / (x1 - x0)) * S.view.scale;
+          const scy = (H / (y1 - y0)) * S.view.scale;
+
+          if (S.encodedSigma) {
+            const [sx, sy] = S.encodedSigma;
+            scatterCtx.beginPath();
+            scatterCtx.ellipse(
+              mx,
+              my,
+              2 * sx * scx,
+              2 * sy * scy,
+              0,
+              0,
+              Math.PI * 2
+            );
+            scatterCtx.strokeStyle = "rgba(57,255,20,0.20)";
+            scatterCtx.lineWidth = 1;
+            scatterCtx.stroke();
+            scatterCtx.beginPath();
+            scatterCtx.ellipse(mx, my, sx * scx, sy * scy, 0, 0, Math.PI * 2);
+            scatterCtx.strokeStyle = "rgba(57,255,20,0.45)";
+            scatterCtx.lineWidth = 1.5;
+            scatterCtx.stroke();
+          }
+
+          if (S.pulseAlpha > 0) {
+            const pr = 6 + (1 - S.pulseAlpha) * 18;
+            scatterCtx.beginPath();
+            scatterCtx.arc(mx, my, pr, 0, Math.PI * 2);
+            scatterCtx.strokeStyle = `rgba(57,255,20,${S.pulseAlpha.toFixed(
+              2
+            )})`;
+            scatterCtx.lineWidth = 2;
+            scatterCtx.stroke();
+            S.pulseAlpha = Math.max(0, S.pulseAlpha - 0.025);
+          }
+
+          // μ dot — neon lime, clickable
+          scatterCtx.beginPath();
+          scatterCtx.arc(mx, my, 7, 0, Math.PI * 2);
+          scatterCtx.strokeStyle = "rgba(57,255,20,0.35)";
+          scatterCtx.lineWidth = 2;
+          scatterCtx.stroke();
+          scatterCtx.beginPath();
+          scatterCtx.arc(mx, my, 4.5, 0, Math.PI * 2);
+          scatterCtx.fillStyle = "#39ff14";
+          scatterCtx.fill();
+
+          const [cx2, cy2] = d2s(S.cursorZ[0], S.cursorZ[1]);
+          scatterCtx.beginPath();
+          scatterCtx.setLineDash([3, 4]);
+          scatterCtx.moveTo(mx, my);
+          scatterCtx.lineTo(cx2, cy2);
+          scatterCtx.strokeStyle = "rgba(57,255,20,0.25)";
+          scatterCtx.lineWidth = 1;
+          scatterCtx.stroke();
+          scatterCtx.setLineDash([]);
+        }
+
+        // Crosshair + cursor dot
+        const [cx, cy] = d2s(S.cursorZ[0], S.cursorZ[1]);
+        scatterCtx.strokeStyle = "rgba(255,255,255,0.22)";
+        scatterCtx.lineWidth = 1;
+        scatterCtx.beginPath();
+        scatterCtx.moveTo(cx, 0);
+        scatterCtx.lineTo(cx, H);
+        scatterCtx.moveTo(0, cy);
+        scatterCtx.lineTo(W, cy);
+        scatterCtx.stroke();
+        scatterCtx.beginPath();
+        scatterCtx.arc(cx, cy, 3.5, 0, Math.PI * 2);
+        scatterCtx.fillStyle = "#fff";
+        scatterCtx.fill();
+
+        requestAnimationFrame(rafLoop);
+      }
+
+      // ─── Scatter mouse ────────────────────────────────────────────────────────────
+      scatterCanvas.addEventListener("mousedown", (e) => {
+        const [sx, sy] = canvasPixels(e);
+        pan.active = true;
+        pan.didMove = false;
+        pan.startSx = sx;
+        pan.startSy = sy;
+        pan.startPanX = S.view.panX;
+        pan.startPanY = S.view.panY;
+        scatterCanvas.style.cursor = "grab";
+      });
+
+      scatterCanvas.addEventListener("mousemove", async (e) => {
+        const [sx, sy] = canvasPixels(e);
+
+        if (pan.active) {
+          const dx = sx - pan.startSx,
+            dy = sy - pan.startSy;
+          if (Math.abs(dx) > 3 || Math.abs(dy) > 3) pan.didMove = true;
+          if (pan.didMove) {
+            S.view.panX = pan.startPanX + dx;
+            S.view.panY = pan.startPanY + dy;
+            return;
+          }
+        }
+
+        const [bx, by] = screenToBase(sx, sy);
+        const [zx, zy] = c2d(bx, by);
+        S.cursorZ = [zx, zy];
+        document.getElementById(
+          "cursor-label"
+        ).textContent = `z = [${zx.toFixed(3)}, ${zy.toFixed(3)}]`;
+        updateLiveKLUI();
+
+        const now = performance.now();
+        if (now - S.lastDecode < 33) return;
+        S.lastDecode = now;
+        await decodeAt(zx, zy, decodeCanvas);
+        await decodeNeighbors(zx, zy);
+      });
+
+      scatterCanvas.addEventListener("mouseup", (e) => {
+        const [sx, sy] = canvasPixels(e);
+        scatterCanvas.style.cursor = "crosshair";
+        if (!pan.didMove && S.encodedZ) {
+          // Click within 14px of μ dot → show that drawing's decode
+          const [mx, my] = d2s(S.encodedZ[0], S.encodedZ[1]);
+          if (Math.hypot(sx - mx, sy - my) < 14) {
+            decodeAt(S.encodedZ[0], S.encodedZ[1], decodeCanvas);
+            decodeNeighbors(S.encodedZ[0], S.encodedZ[1]);
+            S.pulseAlpha = 1.0;
+            document.getElementById(
+              "cursor-label"
+            ).textContent = `z = [${S.encodedZ[0].toFixed(
+              3
+            )}, ${S.encodedZ[1].toFixed(3)}]  (your drawing)`;
+          }
+        }
+        pan.active = false;
+      });
+
+      scatterCanvas.addEventListener("mouseleave", () => {
+        pan.active = false;
+        scatterCanvas.style.cursor = "crosshair";
+        document.getElementById("cursor-label").textContent =
+          "hover the map to decode";
+      });
+
+      // Scroll wheel → zoom centered on cursor
+      scatterCanvas.addEventListener(
+        "wheel",
+        (e) => {
+          e.preventDefault();
+          const [sx, sy] = canvasPixels(e);
+          const [bx, by] = screenToBase(sx, sy);
+          const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+          const newScale = Math.max(0.25, Math.min(10, S.view.scale * factor));
+          S.view.panX = sx - bx * newScale;
+          S.view.panY = sy - by * newScale;
+          S.view.scale = newScale;
+        },
+        { passive: false }
+      );
+
+      // Double-click → reset zoom/pan to auto-fit
+      scatterCanvas.addEventListener("dblclick", () => {
+        autoFitView(S.beta === 1 ? S.scatterVAE : S.scatterAE);
+      });
+
+      // ─── Decode helpers ───────────────────────────────────────────────────────────
+      async function decodeAt(z1, z2, canvas) {
+        const dec = S.beta === 1 ? S.decoderVAE : S.decoderAE;
+        if (!dec) return;
+        const zt = tf.tensor2d([[z1, z2]]);
+        const out = dec.predict(zt);
+        const px = await out.squeeze().data();
+        tf.dispose([zt, out]);
+        paintPixels(px, canvas);
+      }
+
+      async function decodeNeighbors(z1, z2) {
+        const off = 0.3;
+        const pts = [
+          [z1 - off, z2 - off],
+          [z1 + off, z2 - off],
+          [z1 - off, z2 + off],
+          [z1 + off, z2 + off],
+        ];
+        for (let i = 0; i < 4; i++)
+          await decodeAt(pts[i][0], pts[i][1], nbCanvases[i]);
+      }
+
+      function paintPixels(px, canvas) {
+        const ctx = canvas.getContext("2d");
+        const img = ctx.createImageData(28, 28);
+        for (let i = 0; i < 784; i++) {
+          const v = Math.round(px[i] * 255);
+          img.data[i * 4] = v;
+          img.data[i * 4 + 1] = v;
+          img.data[i * 4 + 2] = v;
+          img.data[i * 4 + 3] = 255;
+        }
+        ctx.putImageData(img, 0, 0);
+      }
+
+      // ─── Drawing ─────────────────────────────────────────────────────────────────
+      let drawing = false;
+
+      drawCanvas.addEventListener("mousedown", (e) => {
+        drawing = true;
+        const [x, y] = drawPos(e);
+        drawCtx.beginPath();
+        drawCtx.moveTo(x, y);
+      });
+      drawCanvas.addEventListener("mousemove", (e) => {
+        if (!drawing) return;
+        const [x, y] = drawPos(e);
+        drawCtx.lineTo(x, y);
+        drawCtx.strokeStyle = "#fff";
+        drawCtx.lineWidth = 14;
+        drawCtx.lineCap = "round";
+        drawCtx.lineJoin = "round";
+        drawCtx.stroke();
+      });
+      drawCanvas.addEventListener("mouseup", () => {
+        drawing = false;
+        encodeDrawing();
+      });
+      drawCanvas.addEventListener("mouseleave", () => {
+        if (drawing) {
+          drawing = false;
+          encodeDrawing();
+        }
+      });
+
+      function drawPos(e) {
+        const r = drawCanvas.getBoundingClientRect();
+        return [
+          ((e.clientX - r.left) * 196) / r.width,
+          ((e.clientY - r.top) * 196) / r.height,
+        ];
+      }
+
+      async function encodeDrawing() {
+        if (!S.encoderVAE) return;
+
+        // Downsample 196×196 → 28×28
+        const small = document.createElement("canvas");
+        small.width = small.height = 28;
+        small.getContext("2d").drawImage(drawCanvas, 0, 0, 28, 28);
+        const raw = small.getContext("2d").getImageData(0, 0, 28, 28).data;
+
+        const input = new Float32Array(784);
+        for (let i = 0; i < 784; i++) input[i] = raw[i * 4] / 255;
+        S.drawnPixels = input;
+
+        const t = tf.tensor4d(input, [1, 28, 28, 1]);
+        // Choose the encoder based on the current beta toggle
+        const activeEncoder = S.beta === 1 ? S.encoderVAE : S.encoderAE;
+
+        const outs = activeEncoder.predict(t);
+        const zMeanD = await outs[0].data();
+        const zLogVar = await outs[1].data();
+        tf.dispose([t, ...outs]);
+
+        const sigma = [Math.exp(0.5 * zLogVar[0]), Math.exp(0.5 * zLogVar[1])];
+        S.encodedZ = [zMeanD[0], zMeanD[1]]; // Update state with the NEW coordinates
+        S.encodedSigma = sigma;
+        S.pulseAlpha = 1.0;
+
+        document.getElementById(
+          "val-zmean"
+        ).textContent = `[${zMeanD[0].toFixed(2)}, ${zMeanD[1].toFixed(2)}]`;
+        document.getElementById("val-sigma").textContent = `[${sigma[0].toFixed(
+          2
+        )}, ${sigma[1].toFixed(2)}]`;
+
+        // KL loss
+        const kl =
+          -0.5 *
+          (1 +
+            zLogVar[0] -
+            zMeanD[0] ** 2 -
+            Math.exp(zLogVar[0]) +
+            (1 + zLogVar[1] - zMeanD[1] ** 2 - Math.exp(zLogVar[1])));
+        document.getElementById("val-kl").textContent = kl.toFixed(2);
+
+        // Decode at μ and compute recon loss
+        const dec = S.beta === 1 ? S.decoderVAE : S.decoderAE;
+        const zt = tf.tensor2d([S.encodedZ]);
+        const out = dec.predict(zt);
+        const recon = await out.squeeze().data();
+        tf.dispose([zt, out]);
+
+        paintPixels(recon, decodeCanvas);
+        decodeNeighbors(S.encodedZ[0], S.encodedZ[1]);
+
+        // Binary cross-entropy recon loss
+        let reconLoss = 0;
+        for (let i = 0; i < 784; i++) {
+          const x = input[i];
+          const xhat = Math.max(1e-7, Math.min(1 - 1e-7, recon[i]));
+          reconLoss -= x * Math.log(xhat) + (1 - x) * Math.log(1 - xhat);
+        }
+        const total = reconLoss + S.beta * kl;
+        document.getElementById("val-recon").textContent = reconLoss.toFixed(1);
+        document.getElementById("val-total").textContent = total.toFixed(1);
+      }
+
+      function clearDraw() {
+        drawCtx.fillStyle = "#000";
+        drawCtx.fillRect(0, 0, 196, 196);
+        S.encodedZ = null;
+        S.encodedSigma = null;
+        S.drawnPixels = null;
+        ["val-zmean", "val-sigma", "val-kl", "val-recon", "val-total"].forEach(
+          (id) => {
+            document.getElementById(id).textContent = "—";
+          }
+        );
+      }
+
+      // ─── Beta toggle ─────────────────────────────────────────────────────────────
+      function toggleBeta() {
+        const from = S.beta === 1 ? S.scatterVAE : S.scatterAE;
+        S.beta = S.beta === 1 ? 0 : 1;
+        const to = S.beta === 1 ? S.scatterVAE : S.scatterAE;
+
+        document
+          .getElementById("opt-vae")
+          .classList.toggle("active", S.beta === 1);
+        document
+          .getElementById("opt-ae")
+          .classList.toggle("active", S.beta === 0);
+        document.getElementById("val-beta").textContent = S.beta;
+
+        // Hide KL-related concepts for the AE mode
+        const isVAE = S.beta === 1;
+        document.getElementById("chip-live-kl").style.display = isVAE
+          ? "block"
+          : "none";
+        document.getElementById("chip-kl-loss").style.display = isVAE
+          ? "block"
+          : "none";
+
+        glowHeatmapCache = {}; // scatter changed — glow bounds may differ per model
+        popoverPreviews = {};
+        animateScatter(from, to);
+        decodeAt(S.cursorZ[0], S.cursorZ[1], decodeCanvas);
+        decodeNeighbors(S.cursorZ[0], S.cursorZ[1]);
+
+        // IMPORTANT: Re-run the encoder for the current drawing
+        if (S.drawnPixels) encodeDrawing();
+      }
+
+      function animateScatter(from, to, ms = 800) {
+        const t0 = performance.now();
+        function frame(now) {
+          const t = Math.min((now - t0) / ms, 1);
+          const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+          const mid = from.map((p, i) => ({
+            x: p.x + (to[i].x - p.x) * ease,
+            y: p.y + (to[i].y - p.y) * ease,
+            label: p.label,
+          }));
+          renderOffscreen(mid);
+          if (t < 1) requestAnimationFrame(frame);
+          else {
+            renderOffscreen(to);
+            autoFitView(to);
+          }
+        }
+        requestAnimationFrame(frame);
+      }
+
+      function randNormal() {
+        const u = 1 - Math.random(),
+          v = Math.random();
+        return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+      }
+
+      // Calculates KL( N(μ, σ²) || N(0, 1) ) for 2D isotropic Gaussian
+      function computeLiveKL(muX, muY, sigma) {
+        const muSq = muX * muX + muY * muY;
+        const var_ = sigma * sigma;
+        const kl = 0.5 * (2 * var_ + muSq - 2 - Math.log(var_ * var_));
+        return Math.max(0, kl).toFixed(3);
+      }
+
+      function updateLiveKLUI() {
+        if (S.beta === 0) return;
+        const kl = computeLiveKL(
+          S.cursorZ[0],
+          S.cursorZ[1],
+          S.currentSigma || 1.0
+        );
+        const el = document.getElementById("val-live-kl");
+        if (el) {
+          el.textContent = kl;
+          el.style.color = parseFloat(kl) > 5 ? "#ff4444" : "#44ff44";
+        }
+      }
+
+      // ─── Animate path ────────────────────────────────────────────────────────────
+      function animatePath() {
+        if (S.pathAnim) return;
+        S.pathAnim = true;
+
+        // If a digit is currently written on the canvas, target that encoded point.
+        // This helps the user visualize how their specific drawing maps to the latent space.
+        const start = [...S.cursorZ];
+        const end = S.encodedZ
+          ? [S.encodedZ[0], S.encodedZ[1]]
+          : [randNormal() * 1.5, randNormal() * 1.5];
+
+        const steps = 100;
+        let i = 0;
+        async function step() {
+          if (i >= steps) {
+            S.pathAnim = false;
+            S.cursorZ = [end[0], end[1]];
+            await decodeAt(end[0], end[1], decodeCanvas);
+            await decodeNeighbors(end[0], end[1]);
+            return;
+          }
+
+          const t = i / steps;
+          // Quadratic ease-in-out for a more polished transition
+          const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+
+          const z1 = start[0] + (end[0] - start[0]) * ease;
+          const z2 = start[1] + (end[1] - start[1]) * ease;
+
+          S.cursorZ = [z1, z2];
+          document.getElementById(
+            "cursor-label"
+          ).textContent = `z = [${z1.toFixed(3)}, ${z2.toFixed(3)}]${
+            S.encodedZ && end[0] === S.encodedZ[0]
+              ? " (mapping drawing...)"
+              : ""
+          }`;
+          updateLiveKLUI();
+
+          await decodeAt(z1, z2, decodeCanvas);
+          if (i % 5 === 0) await decodeNeighbors(z1, z2); // Update neighbors occasionally to maintain performance
+
+          i++;
+          setTimeout(step, 16);
+        }
+        step();
+      }
+
+      // ─── Info panels ─────────────────────────────────────────────────────────────
+      function toggleInfo(id) {
+        if (S.activeInfo && S.activeInfo !== id) {
+          document.getElementById(S.activeInfo).style.display = "none";
+        }
+        const el = document.getElementById(id);
+        const open = el.style.display === "block";
+        el.style.display = open ? "none" : "block";
+        S.activeInfo = open ? null : id;
+      }
+
+      // ─── Distribution Picker ─────────────────────────────────────────────────────
+      const DISTRIBUTIONS = [
+        {
+          key: "normal",
+          label: "Origin",
+          formula: "N([0,0], 0.5)",
+          sigma: 0.5,
+          annotation: "High quality, very generic digits near center.",
+        },
+        {
+          key: "edge",
+          label: "The Edge",
+          formula: "N([3,3], 1.0)",
+          sigma: 1.0,
+          annotation: "Model's imagination at the latent boundary.",
+        },
+        {
+          key: "blur",
+          label: "The Blur",
+          formula: "N([0,0], 4.0)",
+          sigma: 4.0,
+          annotation: "Huge variance, mixing codes into a mess.",
+        },
+        {
+          key: "uniform",
+          label: "Uniform",
+          formula: "z ~ U(−3, 3)",
+          sigma: 1.0,
+          annotation: "Flat prior — decoder learns everywhere equally",
+        },
+        {
+          key: "laplace",
+          label: "Laplace",
+          formula: "z ~ Lap(0,1)",
+          sigma: 1.0,
+          annotation: "Heavy-tailed prior — decoder concentrates at center",
+        },
+      ];
+
+      const SAMPLERS = {
+        normal: () => [randNormal() * 0.5, randNormal() * 0.5],
+        edge: () => [randNormal() + 3, randNormal() + 3],
+        blur: () => [randNormal() * 4, randNormal() * 4],
+        uniform: () => [Math.random() * 6 - 3, Math.random() * 6 - 3],
+        laplace: () => {
+          const sL = () => {
+            const u = Math.random() - 0.5;
+            return -Math.sign(u) * Math.log(1 - 2 * Math.abs(u));
+          };
+          return [sL(), sL()];
+        },
+      };
+
+      // Z-space → pixel coords for a canvas of arbitrary size W×H (uses S.bounds)
+      function zToPx(zx, zy, W, H) {
+        const { x0, x1, y0, y1 } = S.bounds;
+        return [((zx - x0) / (x1 - x0)) * W, ((zy - y0) / (y1 - y0)) * H];
+      }
+
+      // ─── Glow heatmap density functions ──────────────────────────────────────────
+      function computeDensity(z1, z2, key) {
+        switch (key) {
+          case "normal":
+            return Math.exp(-0.5 * (z1 * z1 + z2 * z2));
+          case "normal_shifted":
+            return Math.exp(-0.5 * ((z1 - 2) * (z1 - 2) + (z2 - 2) * (z2 - 2)));
+          case "normal_wide":
+            return Math.exp(-0.5 * ((z1 / 3) * (z1 / 3) + (z2 / 3) * (z2 / 3)));
+          case "blur":
+            return Math.exp(-0.5 * ((z1 / 4) * (z1 / 4) + (z2 / 4) * (z2 / 4)));
+          case "edge":
+            return Math.exp(-0.5 * ((z1 - 3) * (z1 - 3) + (z2 - 3) * (z2 - 3)));
+          case "uniform":
+            return z1 >= -3 && z1 <= 3 && z2 >= -3 && z2 <= 3 ? 1 : 0;
+          case "laplace":
+            return Math.exp(-(Math.abs(z1) + Math.abs(z2)));
+          default:
+            return 0;
+        }
+      }
+
+      // Render glow onto an offscreen canvas in base CSS-pixel space (matches scatter dots)
+      function renderGlowHeatmap(key) {
+        const W = S.cssW,
+          H = S.cssH;
+        const heat = document.createElement("canvas");
+        heat.width = W;
+        heat.height = H;
+        const hCtx = heat.getContext("2d");
+        const GRID = 40;
+        const gsX = W / GRID,
+          gsY = H / GRID;
+        const cellR = Math.max(gsX, gsY) * 0.95;
+        for (let i = 0; i < GRID; i++) {
+          for (let j = 0; j < GRID; j++) {
+            const px = i * gsX + gsX / 2;
+            const py = j * gsY + gsY / 2;
+            const [z1, z2] = c2d(px, py); // base px → z-space (no Y flip, matches scatter dots)
+            const norm = Math.min(computeDensity(z1, z2, key), 1);
+            const alpha = 0.01 + norm * 0.24;
+            const grad = hCtx.createRadialGradient(px, py, 0, px, py, cellR); // Golden glow
+            grad.addColorStop(
+              0,
+              `rgba(255,204,0,${Math.min(alpha * 1.2, 0.3).toFixed(3)})`
+            );
+            grad.addColorStop(
+              1,
+              `rgba(255,204,0,${(alpha * 0.08).toFixed(3)})`
+            );
+            hCtx.fillStyle = grad;
+            hCtx.beginPath();
+            hCtx.arc(px, py, cellR, 0, Math.PI * 2);
+            hCtx.fill();
+          }
+        }
+        return heat;
+      }
+
+      let glowHeatmapCache = {};
+
+      function getGlowHeatmap(key) {
+        if (!S.bounds || S.cssW < 2) return null;
+        if (!glowHeatmapCache[key])
+          glowHeatmapCache[key] = renderGlowHeatmap(key);
+        return glowHeatmapCache[key];
+      }
+
+      // Generate n points from the named distribution in z-space
+      function generateDistributionPoints(key, n) {
+        const pts = [];
+        for (let i = 0; i < n; i++) {
+          const u1 = 1 - Math.random(),
+            u2 = Math.random();
+          const base = Math.sqrt(-2 * Math.log(u1));
+          let x, y;
+          switch (key) {
+            case "normal":
+              x = base * Math.cos(2 * Math.PI * u2) * 0.5;
+              y = base * Math.sin(2 * Math.PI * u2) * 0.5;
+              break;
+            case "edge":
+              x = base * Math.cos(2 * Math.PI * u2) + 3;
+              y = base * Math.sin(2 * Math.PI * u2) + 3;
+              break;
+            case "laplace": {
+              const lx = Math.random() - 0.5,
+                ly = Math.random() - 0.5;
+              x = -Math.sign(lx) * Math.log(1 - 2 * Math.abs(lx));
+              y = -Math.sign(ly) * Math.log(1 - 2 * Math.abs(ly));
+              break;
+            }
+            case "uniform":
+              x = Math.random() * 8 - 4;
+              y = Math.random() * 8 - 4;
+              break;
+            case "blur":
+              x = base * Math.cos(2 * Math.PI * u2) * 4;
+              y = base * Math.sin(2 * Math.PI * u2) * 4;
+              break;
+            default:
+              x = y = 0;
+          }
+          pts.push({ x, y });
+        }
+        return pts;
+      }
+
+      // Render distribution scatter preview onto the popover canvas (142×142)
+      function renderPopoverPreview(canvas, key) {
+        const ctx = canvas.getContext("2d");
+        const W = canvas.width,
+          H = canvas.height;
+        ctx.fillStyle = "#0e0e0e";
+        ctx.fillRect(0, 0, W, H);
+
+        // Faint axis lines
+        ctx.strokeStyle = "rgba(255,255,255,0.07)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(W / 2, 0);
+        ctx.lineTo(W / 2, H);
+        ctx.moveTo(0, H / 2);
+        ctx.lineTo(W, H / 2);
+        ctx.stroke();
+
+        const RANGE = 5; // fixed z-space view: [-5, 5]
+        const toCanvasX = (z) => ((z + RANGE) / (2 * RANGE)) * W;
+        const toCanvasY = (z) => ((z + RANGE) / (2 * RANGE)) * H;
+
+        const pts = generateDistributionPoints(key, 80);
+        pts.forEach(({ x, y }) => {
+          const px = toCanvasX(x),
+            py = toCanvasY(y);
+          if (px < 0 || px > W || py < 0 || py > H) return;
+          ctx.beginPath();
+          ctx.arc(px, py, 2, 0, Math.PI * 2);
+          ctx.fillStyle = "rgba(255,204,0,0.75)";
+          ctx.fill();
+        });
+      }
+
+      let popoverPreviews = {};
+
+      function initDistributionPicker() {
+        const container = document.getElementById("dist-chips");
+        DISTRIBUTIONS.forEach((dist) => {
+          const chip = document.createElement("div");
+          chip.id = `chip-${dist.key}`;
+          chip.className = "dist-chip";
+          chip.title = dist.formula;
+
+          const lbl = document.createElement("span");
+          lbl.textContent = dist.label;
+          lbl.className = "dist-chip-label";
+          chip.appendChild(lbl);
+
+          let hoverTimer = null;
+          chip.addEventListener("mouseenter", () => {
+            if (S.currentDistribution === dist.key) return;
+            hoverTimer = setTimeout(() => showPopover(dist, chip), 120);
+          });
+          chip.addEventListener("mouseleave", () => {
+            clearTimeout(hoverTimer);
+            hidePopover();
+          });
+          chip.addEventListener("click", () => setDistribution(dist.key));
+          container.appendChild(chip);
+        });
+        setDistribution("normal");
+      }
+
+      function setDistribution(key) {
+        S.currentDistribution = key;
+        const dist = DISTRIBUTIONS.find((d) => d.key === key);
+        S.currentSigma = dist.sigma || 1.0;
+        document.getElementById("dist-label").textContent = dist.label;
+        DISTRIBUTIONS.forEach((d) => {
+          document
+            .getElementById(`chip-${d.key}`)
+            .classList.toggle("dist-chip-active", d.key === key);
+        });
+        hidePopover();
+        updateLiveKLUI();
+        // Glow updates automatically on next rAF frame via getGlowHeatmap()
+      }
+
+      function showPopover(dist, chipEl) {
+        const popover = document.getElementById("dist-popover");
+        const preview = document.getElementById("popover-preview");
+        document.getElementById(
+          "popover-title"
+        ).textContent = `${dist.label}  ·  ${dist.formula}`;
+        document.getElementById("popover-annotation").textContent =
+          dist.annotation;
+
+        if (!popoverPreviews[dist.key]) {
+          renderPopoverPreview(preview, dist.key);
+          popoverPreviews[dist.key] = true;
+        }
+
+        const pw = 162;
+        const ph = 225;
+        const chipRect = chipEl.getBoundingClientRect();
+        let left = chipRect.left + chipRect.width / 2 - pw / 2;
+        let top = chipRect.top - ph - 8;
+        left = Math.max(8, Math.min(left, window.innerWidth - pw - 8));
+        top = Math.max(8, Math.min(top, window.innerHeight - ph - 8));
+
+        popover.style.left = left + "px";
+        popover.style.top = top + "px";
+        popover.style.display = "block";
+      }
+
+      function hidePopover() {
+        document.getElementById("dist-popover").style.display = "none";
+      }
+
+      async function handleSample() {
+        const [z1, z2] = SAMPLERS[S.currentDistribution]();
+        S.cursorZ = [z1, z2];
+        const dist = DISTRIBUTIONS.find((d) => d.key === S.currentDistribution);
+        document.getElementById(
+          "cursor-label"
+        ).textContent = `z = [${z1.toFixed(3)}, ${z2.toFixed(3)}]  (${
+          dist.label
+        } sample)`;
+        updateLiveKLUI();
+        await decodeAt(z1, z2, decodeCanvas);
+        await decodeNeighbors(z1, z2);
+      }
+
+      // ─── Fullscreen ───────────────────────────────────────────────────────────────
+      function toggleFullscreen() {
+        const panel = document.getElementById("latent-panel");
+        if (!document.fullscreenElement) {
+          panel
+            .requestFullscreen()
+            .catch((err) => console.warn("Fullscreen error:", err));
+        } else {
+          document.exitFullscreen();
+        }
+      }
+
+      document.addEventListener("fullscreenchange", () => {
+        const btn = document.getElementById("fs-btn");
+        if (btn) btn.textContent = document.fullscreenElement ? "✕" : "⛶";
+        setTimeout(sizescatterCanvas, 60);
+      });
+
+      // ─── Boot ────────────────────────────────────────────────────────────────────
+      init();
+    </script>
+  </body>
+</html>
