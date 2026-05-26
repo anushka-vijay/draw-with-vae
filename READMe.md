@@ -19,29 +19,7 @@ Here's a quick look at this cool tool in action:
 
 ---
 
-# Draw with VAE! 🎨🤖
-
-A fun, interactive tool designed to help students visualize and learn about **Autoencoders (AE)** and **Variational Autoencoders (VAE)** using the classic MNIST dataset.
-
-This tool maps high-dimensional digit data down to a **2D latent space grid**, allowing users to visually explore how neural networks compress, reconstruct, and generate data.
-
-## 🚀 Features
-
-- **Interactive Drawing:** Toy with different custom drawn digits and see how the model responds in real-time.
-- **Latent Space Visualization:** See the dataset reduced to a 2D grid to understand how different digits cluster together.
-- **Core Concepts Made Easy:** Understand concepts like _Reconstruction Loss_, _KL Divergence_, the _Reparameterization Trick_, and _Sample Distributions_ through direct visual feedback.
-
----
-
-## 📺 Demo Video
-
-Here's a quick look at this cool tool in action:
-
-<video src="./assets/draw_with_vae.mp4" width="100%" controls></video>
-
----
-
-## 🚀 Try Draw with VAE!
+## Try Draw with VAE!
 
 Getting the interactive tool up and running on your local machine is quick and simple. Follow these steps to clone the repo, set up your environment, and launch the server:
 
